@@ -1,1 +1,8 @@
-// Mode enum: Normal | Insert | Command | Visual
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Mode {
+    #[default]
+    Normal,
+    Insert,
+    Command,
+    Visual,
+}
