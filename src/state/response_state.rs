@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use ratatui::text::Text;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -38,6 +39,10 @@ pub struct ResponseState {
     pub size_bytes: usize,
     pub received_at: DateTime<Utc>,
     pub scroll_offset: u16,
+    /// Pre-computed syntax-highlighted body. Computed once on response arrival;
+    /// skipped during serialisation since it can be trivially recomputed.
+    #[serde(skip)]
+    pub highlighted_body: Option<Text<'static>>,
 }
 
 impl Default for ResponseState {
@@ -52,6 +57,7 @@ impl Default for ResponseState {
             size_bytes: 0,
             received_at: Utc::now(),
             scroll_offset: 0,
+            highlighted_body: None,
         }
     }
 }

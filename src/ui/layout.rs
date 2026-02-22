@@ -17,6 +17,8 @@ pub const ACCENT_BLUE: Color = Color::Rgb(122, 162, 247);  // #7aa2f7
 pub const BORDER_INACTIVE: Color = Color::Rgb(65, 72, 104); // #414868
 pub const BG: Color = Color::Rgb(26, 27, 38);               // #1a1b26
 
+pub const SPINNER_FRAMES: &[char] = &['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
+
 pub fn render(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
 

@@ -10,10 +10,7 @@ use ratatui::{
 use crate::state::app_state::{AppState, RequestStatus};
 use crate::state::response_state::ResponseBody;
 use crate::state::focus::Focus;
-use super::super::layout::{ACCENT_BLUE, BORDER_INACTIVE};
-use super::super::highlight::highlight_text;
-
-const SPINNER_FRAMES: &[char] = &['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
+use super::super::layout::{ACCENT_BLUE, BORDER_INACTIVE, SPINNER_FRAMES};
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let focused = matches!(state.focus, Focus::ResponseViewer);
@@ -62,8 +59,12 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
                             ))
                         }
                         ResponseBody::Text(text) => {
-                            let lang = detect_lang(text);
-                            highlight_text(text, lang)
+                            // Use the pre-computed highlighted text; fall back to plain
+                            // text only if the cache is somehow absent (e.g. after serde
+                            // round-trip in a future history feature).
+                            resp.highlighted_body
+                                .clone()
+                                .unwrap_or_else(|| ratatui::text::Text::raw(text.clone()))
                         }
                     };
 
@@ -112,13 +113,3 @@ pub fn render_meta(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
-fn detect_lang(text: &str) -> &'static str {
-    let t = text.trim_start();
-    if t.starts_with('{') || t.starts_with('[') {
-        "json"
-    } else if t.starts_with('<') {
-        "xml"
-    } else {
-        "txt"
-    }
-}

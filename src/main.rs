@@ -56,7 +56,10 @@ async fn run_loop(
     rx: &mut mpsc::UnboundedReceiver<Event>,
 ) -> anyhow::Result<()> {
     loop {
-        terminal.draw(|frame| ui::layout::render(frame, &app.state))?;
+        if app.state.dirty {
+            terminal.draw(|frame| ui::layout::render(frame, &app.state))?;
+            app.state.dirty = false;
+        }
 
         match rx.recv().await {
             Some(event) => app.handle_event(event),

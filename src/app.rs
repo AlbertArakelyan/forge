@@ -8,7 +8,8 @@ use crate::http::{client::build_client, executor::execute};
 use crate::state::app_state::{AppState, RequestStatus};
 use crate::state::focus::Focus;
 use crate::state::mode::Mode;
-use crate::state::response_state::ResponseState;
+use crate::state::response_state::{ResponseBody, ResponseState};
+use crate::ui::highlight::{detect_lang, highlight_text};
 
 pub struct App {
     pub state: AppState,
@@ -22,6 +23,7 @@ impl App {
         Self {
             state: AppState {
                 sidebar_visible: true,
+                dirty: true,
                 ..Default::default()
             },
             client: build_client(),
@@ -32,16 +34,27 @@ impl App {
 
     pub fn handle_event(&mut self, event: Event) {
         match event {
-            Event::Key(key) if key.kind != KeyEventKind::Release => match self.state.mode {
-                Mode::Normal => self.handle_normal_key(key),
-                Mode::Insert => self.handle_insert_key(key),
-                Mode::Command | Mode::Visual => {}
-            },
+            Event::Key(key) if key.kind != KeyEventKind::Release => {
+                self.state.dirty = true;
+                match self.state.mode {
+                    Mode::Normal => self.handle_normal_key(key),
+                    Mode::Insert => self.handle_insert_key(key),
+                    Mode::Command | Mode::Visual => {}
+                }
+            }
             Event::Key(_) => {}
-            Event::Response(result) => self.handle_response(result),
+            Event::Response(result) => {
+                self.state.dirty = true;
+                self.handle_response(result);
+            }
+            // Tick: only dirty when the spinner is visible; otherwise a no-op.
             Event::Tick => self.handle_tick(),
-            Event::Mouse(mouse) => self.handle_mouse(mouse),
-            Event::Resize(_, _) => {}
+            Event::Mouse(mouse) => {
+                self.state.dirty = true;
+                self.handle_mouse(mouse);
+            }
+            // Terminal resize always requires a full redraw.
+            Event::Resize(_, _) => self.state.dirty = true,
         }
     }
 
@@ -187,7 +200,12 @@ impl App {
     fn handle_response(&mut self, result: Result<ResponseState, AppError>) {
         self.cancel = None;
         match result {
-            Ok(response) => {
+            Ok(mut response) => {
+                // Pre-compute syntax highlighting once so the renderer never does it.
+                if let ResponseBody::Text(text) = &response.body {
+                    let lang = detect_lang(text);
+                    response.highlighted_body = Some(highlight_text(text, lang));
+                }
                 self.state.response = Some(response);
                 self.state.request_status = RequestStatus::Idle;
             }
@@ -203,6 +221,7 @@ impl App {
     fn handle_tick(&mut self) {
         if let RequestStatus::Loading { spinner_tick } = &mut self.state.request_status {
             *spinner_tick = spinner_tick.wrapping_add(1);
+            self.state.dirty = true;
         }
     }
 

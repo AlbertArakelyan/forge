@@ -45,3 +45,14 @@ pub fn highlight_text(text: &str, lang: &str) -> Text<'static> {
 
     Text::from(lines)
 }
+
+pub fn detect_lang(text: &str) -> &'static str {
+    let t = text.trim_start();
+    if t.starts_with('{') || t.starts_with('[') {
+        "json"
+    } else if t.starts_with('<') {
+        "xml"
+    } else {
+        "txt"
+    }
+}

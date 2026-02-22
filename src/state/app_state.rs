@@ -43,4 +43,7 @@ pub struct AppState {
     pub request_status: RequestStatus,
     pub sidebar_visible: bool,
     pub should_quit: bool,
+    /// Set to `true` whenever visible state changes. The render loop skips
+    /// `terminal.draw()` when `false`, avoiding redundant work on idle ticks.
+    pub dirty: bool,
 }

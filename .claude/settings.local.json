@@ -6,5 +6,9 @@
       "Bash(echo No tokio-util in lock yet:*)",
       "WebFetch(domain:docs.rs)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "context7"
+  ],
+  "enableAllProjectMcpServers": true
 }

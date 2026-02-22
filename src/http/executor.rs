@@ -100,6 +100,7 @@ async fn do_execute(client: Client, state: RequestState) -> Result<ResponseState
         size_bytes,
         received_at: Utc::now(),
         scroll_offset: 0,
+        highlighted_body: None, // computed by app.rs once the response arrives
     })
 }
 

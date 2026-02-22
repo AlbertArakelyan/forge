@@ -10,9 +10,7 @@ use crate::state::app_state::{AppState, RequestStatus};
 use crate::state::focus::Focus;
 use crate::state::mode::Mode;
 use crate::state::request_state::HttpMethod;
-use super::super::layout::{ACCENT_BLUE, BORDER_INACTIVE};
-
-const SPINNER_FRAMES: &[char] = &['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
+use super::super::layout::{ACCENT_BLUE, BORDER_INACTIVE, SPINNER_FRAMES};
 
 fn method_color(method: &HttpMethod) -> Color {
     match method {
@@ -72,21 +70,29 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         chunks[3],
     );
 
-    // Send button
-    let (send_text, send_style) = match &state.request_status {
+    // Send button — rendered per-branch to avoid a heap allocation for the
+    // common idle case where the label is a &'static str.
+    match &state.request_status {
         RequestStatus::Loading { spinner_tick } => {
             let idx = (*spinner_tick as usize) % SPINNER_FRAMES.len();
-            (
-                format!("{} ..", SPINNER_FRAMES[idx]),
-                Style::default().fg(Color::Yellow),
-            )
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    format!("{} ..", SPINNER_FRAMES[idx]),
+                    Style::default().fg(Color::Yellow),
+                ))),
+                chunks[4],
+            );
         }
-        _ => ("Send ↵".to_string(), Style::default().fg(Color::Rgb(158, 206, 106))),
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(send_text, send_style))),
-        chunks[4],
-    );
+        _ => {
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    "Send ↵",
+                    Style::default().fg(Color::Rgb(158, 206, 106)),
+                ))),
+                chunks[4],
+            );
+        }
+    }
 }
 
 fn build_url_line(state: &AppState, focused: bool) -> Line<'static> {
