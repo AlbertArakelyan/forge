@@ -1,0 +1,1 @@
+// Unified error types (thiserror)

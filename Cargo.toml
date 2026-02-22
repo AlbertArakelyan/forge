@@ -2,5 +2,64 @@
 name = "forge"
 version = "0.1.0"
 edition = "2024"
+description = "A terminal-native API client — Postman in your terminal"
+license = "MIT"
+
+[[bench]]
+name = "startup"
+harness = false
+
+[[bench]]
+name = "large_response_render"
+harness = false
 
 [dependencies]
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# HTTP
+reqwest = { version = "0.12", features = ["rustls-tls", "json", "stream", "multipart", "gzip", "brotli"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Syntax highlighting
+syntect = "5"
+
+# Fuzzy search
+fuzzy-matcher = "0.3"
+
+# Scripting
+rhai = "1"
+
+# File watching
+notify = "7"
+
+# Utilities
+dirs = "5"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+humansize = "2"
+humantime = "2"
+url = "2"
+mime = "0.3"
+mime_guess = "2"
+arboard = "3"
+
+[dev-dependencies]
+wiremock = "0.6"
+assert_cmd = "2"
+tempfile = "3"
+insta = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
