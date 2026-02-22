@@ -65,17 +65,13 @@ impl App {
             }
             KeyCode::Esc => self.cancel_request(),
             KeyCode::Char('j') | KeyCode::Down => {
-                if matches!(self.state.focus, Focus::ResponseViewer) {
-                    if let Some(resp) = &mut self.state.response {
-                        resp.scroll_offset = resp.scroll_offset.saturating_add(1);
-                    }
+                if let Some(resp) = &mut self.state.response {
+                    resp.scroll_offset = resp.scroll_offset.saturating_add(1);
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if matches!(self.state.focus, Focus::ResponseViewer) {
-                    if let Some(resp) = &mut self.state.response {
-                        resp.scroll_offset = resp.scroll_offset.saturating_sub(1);
-                    }
+                if let Some(resp) = &mut self.state.response {
+                    resp.scroll_offset = resp.scroll_offset.saturating_sub(1);
                 }
             }
             KeyCode::Char('1') => self.state.focus = Focus::Sidebar,
