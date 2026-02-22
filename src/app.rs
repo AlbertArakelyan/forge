@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
@@ -40,7 +40,8 @@ impl App {
             Event::Key(_) => {}
             Event::Response(result) => self.handle_response(result),
             Event::Tick => self.handle_tick(),
-            Event::Resize(_, _) | Event::Mouse(_) => {}
+            Event::Mouse(mouse) => self.handle_mouse(mouse),
+            Event::Resize(_, _) => {}
         }
     }
 
@@ -165,6 +166,22 @@ impl App {
             p += 1;
         }
         p
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollDown => {
+                if let Some(resp) = &mut self.state.response {
+                    resp.scroll_offset = resp.scroll_offset.saturating_add(3);
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if let Some(resp) = &mut self.state.response {
+                    resp.scroll_offset = resp.scroll_offset.saturating_sub(3);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn handle_response(&mut self, result: Result<ResponseState, AppError>) {
