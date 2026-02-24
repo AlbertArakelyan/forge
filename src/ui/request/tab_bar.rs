@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::state::app_state::{ActiveTab, AppState};
+use crate::state::focus::Focus;
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let tabs = [
@@ -17,19 +18,27 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         ("Scripts", ActiveTab::Scripts),
     ];
 
+    let tab_focused = state.focus == Focus::TabBar;
+
     let mut spans: Vec<Span<'static>> = Vec::new();
     for (i, (name, tab)) in tabs.iter().enumerate() {
         if i > 0 {
             spans.push(Span::raw("  "));
         }
-        let style = if *tab == state.active_tab {
+        let is_active = *tab == state.active_tab;
+        let style = if is_active {
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::UNDERLINED)
         } else {
             Style::default().fg(Color::Rgb(65, 72, 104))
         };
-        spans.push(Span::styled(name.to_string(), style));
+        let label: String = if is_active && tab_focused {
+            format!("[{name}]")
+        } else {
+            name.to_string()
+        };
+        spans.push(Span::styled(label, style));
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
