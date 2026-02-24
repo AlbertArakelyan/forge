@@ -88,6 +88,12 @@ impl App {
                     resp.scroll_offset = resp.scroll_offset.saturating_sub(1);
                 }
             }
+            KeyCode::Left | KeyCode::Char('h') if self.state.focus == Focus::TabBar => {
+                self.state.active_tab = self.state.active_tab.prev();
+            }
+            KeyCode::Right | KeyCode::Char('l') if self.state.focus == Focus::TabBar => {
+                self.state.active_tab = self.state.active_tab.next();
+            }
             KeyCode::Char('1') => self.state.focus = Focus::Sidebar,
             KeyCode::Char('2') => self.state.focus = Focus::UrlBar,
             KeyCode::Char('3') => self.state.focus = Focus::Editor,

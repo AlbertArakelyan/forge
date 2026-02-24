@@ -15,6 +15,28 @@ pub enum ActiveTab {
     Scripts,
 }
 
+impl ActiveTab {
+    pub fn next(&self) -> ActiveTab {
+        match self {
+            ActiveTab::Headers => ActiveTab::Body,
+            ActiveTab::Body => ActiveTab::Auth,
+            ActiveTab::Auth => ActiveTab::Params,
+            ActiveTab::Params => ActiveTab::Scripts,
+            ActiveTab::Scripts => ActiveTab::Headers,
+        }
+    }
+
+    pub fn prev(&self) -> ActiveTab {
+        match self {
+            ActiveTab::Headers => ActiveTab::Scripts,
+            ActiveTab::Body => ActiveTab::Headers,
+            ActiveTab::Auth => ActiveTab::Body,
+            ActiveTab::Params => ActiveTab::Auth,
+            ActiveTab::Scripts => ActiveTab::Params,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ResponseTab {
     #[default]

@@ -4,11 +4,14 @@ use ratatui::{
     style::Color,
 };
 
-use crate::state::app_state::AppState;
+use crate::state::app_state::{ActiveTab, AppState};
 use super::{
     sidebar,
     status_bar,
-    request::{url_bar, tab_bar as req_tab_bar},
+    request::{
+        url_bar, tab_bar as req_tab_bar,
+        headers_editor, body_editor, auth_editor, params_editor, scripts_editor,
+    },
     response::{render_meta, body_viewer, tab_bar as resp_tab_bar},
 };
 
@@ -64,7 +67,13 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     url_bar::render(frame, chunks[0], state);
     req_tab_bar::render(frame, chunks[1], state);
-    // chunks[2] — request editor body (future rounds)
+    match state.active_tab {
+        ActiveTab::Headers => headers_editor::render(frame, chunks[2], state),
+        ActiveTab::Body    => body_editor::render(frame, chunks[2], state),
+        ActiveTab::Auth    => auth_editor::render(frame, chunks[2], state),
+        ActiveTab::Params  => params_editor::render(frame, chunks[2], state),
+        ActiveTab::Scripts => scripts_editor::render(frame, chunks[2], state),
+    }
     render_meta(frame, chunks[3], state);
     resp_tab_bar::render(frame, chunks[4], state);
     body_viewer::render(frame, chunks[5], state);
