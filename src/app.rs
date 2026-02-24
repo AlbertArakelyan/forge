@@ -37,6 +37,13 @@ impl App {
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
                 self.state.dirty = true;
+                // Ctrl+R fires globally regardless of mode or focus
+                if key.code == KeyCode::Char('r')
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    self.send_request();
+                    return;
+                }
                 match self.state.mode {
                     Mode::Normal => self.handle_normal_key(key),
                     Mode::Insert => self.handle_insert_key(key),
@@ -90,9 +97,6 @@ impl App {
             }
             KeyCode::Char(']') => {
                 self.state.request.method = self.state.request.method.next();
-            }
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.send_request();
             }
             KeyCode::Esc => self.cancel_request(),
             KeyCode::Char('j') | KeyCode::Down => {
