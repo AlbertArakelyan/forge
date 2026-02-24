@@ -5,7 +5,8 @@ use tokio_util::sync::CancellationToken;
 use crate::error::AppError;
 use crate::event::Event;
 use crate::http::{client::build_client, executor::execute};
-use crate::state::app_state::{AppState, RequestStatus};
+use crate::state::app_state::{ActiveTab, AppState, RequestStatus};
+use crate::state::request_state::KeyValuePair;
 use crate::state::focus::Focus;
 use crate::state::mode::Mode;
 use crate::state::response_state::{ResponseBody, ResponseState};
@@ -66,10 +67,20 @@ impl App {
             KeyCode::Char('i') | KeyCode::Enter => {
                 if matches!(self.state.focus, Focus::UrlBar | Focus::Editor) {
                     self.state.mode = Mode::Insert;
-                    // When entering Insert on the body editor, initialize body to Json if None
                     if self.state.focus == Focus::Editor {
-                        if self.state.request.body == crate::state::request_state::RequestBody::None {
-                            self.state.request.body = crate::state::request_state::RequestBody::Json(String::new());
+                        if self.state.active_tab == ActiveTab::Headers {
+                            // Set cursor to end of active cell
+                            let row = self.state.request.headers_row;
+                            let col = self.state.request.headers_col;
+                            if let Some(pair) = self.state.request.headers.get(row) {
+                                let len = if col == 0 { pair.key.len() } else { pair.value.len() };
+                                self.state.request.headers_cursor = len;
+                            }
+                        } else {
+                            // Body editor: initialize body to Json if None
+                            if self.state.request.body == crate::state::request_state::RequestBody::None {
+                                self.state.request.body = crate::state::request_state::RequestBody::Json(String::new());
+                            }
                         }
                     }
                 }
@@ -85,12 +96,25 @@ impl App {
             }
             KeyCode::Esc => self.cancel_request(),
             KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(resp) = &mut self.state.response {
+                if self.state.focus == Focus::Editor
+                    && self.state.active_tab == ActiveTab::Headers
+                {
+                    let len = self.state.request.headers.len();
+                    if len > 0 {
+                        self.state.request.headers_row =
+                            (self.state.request.headers_row + 1).min(len - 1);
+                    }
+                } else if let Some(resp) = &mut self.state.response {
                     resp.scroll_offset = resp.scroll_offset.saturating_add(1);
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(resp) = &mut self.state.response {
+                if self.state.focus == Focus::Editor
+                    && self.state.active_tab == ActiveTab::Headers
+                {
+                    self.state.request.headers_row =
+                        self.state.request.headers_row.saturating_sub(1);
+                } else if let Some(resp) = &mut self.state.response {
                     resp.scroll_offset = resp.scroll_offset.saturating_sub(1);
                 }
             }
@@ -99,6 +123,58 @@ impl App {
             }
             KeyCode::Right | KeyCode::Char('l') if self.state.focus == Focus::TabBar => {
                 self.state.active_tab = self.state.active_tab.next();
+            }
+            KeyCode::Left
+                if self.state.focus == Focus::Editor
+                    && self.state.active_tab == ActiveTab::Headers =>
+            {
+                self.state.request.headers_col = 0;
+                let row = self.state.request.headers_row;
+                let len = self.state.request.headers.get(row).map(|p| p.key.len()).unwrap_or(0);
+                self.state.request.headers_cursor = len;
+            }
+            KeyCode::Right
+                if self.state.focus == Focus::Editor
+                    && self.state.active_tab == ActiveTab::Headers =>
+            {
+                self.state.request.headers_col = 1;
+                let row = self.state.request.headers_row;
+                let len = self.state.request.headers.get(row).map(|p| p.value.len()).unwrap_or(0);
+                self.state.request.headers_cursor = len;
+            }
+            KeyCode::Char('a')
+                if self.state.focus == Focus::Editor
+                    && self.state.active_tab == ActiveTab::Headers =>
+            {
+                self.state.request.headers.push(KeyValuePair::default());
+                let new_row = self.state.request.headers.len() - 1;
+                self.state.request.headers_row = new_row;
+                self.state.request.headers_col = 0;
+                self.state.request.headers_cursor = 0;
+                self.state.mode = Mode::Insert;
+            }
+            KeyCode::Char('x') | KeyCode::Char('d')
+                if self.state.focus == Focus::Editor
+                    && self.state.active_tab == ActiveTab::Headers =>
+            {
+                let len = self.state.request.headers.len();
+                if len > 0 {
+                    self.state.request.headers.remove(self.state.request.headers_row);
+                    let new_len = self.state.request.headers.len();
+                    self.state.request.headers_row = if new_len > 0 {
+                        self.state.request.headers_row.min(new_len - 1)
+                    } else {
+                        0
+                    };
+                }
+            }
+            KeyCode::Char(' ')
+                if self.state.focus == Focus::Editor
+                    && self.state.active_tab == ActiveTab::Headers =>
+            {
+                if let Some(pair) = self.state.request.headers.get_mut(self.state.request.headers_row) {
+                    pair.enabled = !pair.enabled;
+                }
             }
             KeyCode::Char('1') => self.state.focus = Focus::Sidebar,
             KeyCode::Char('2') => self.state.focus = Focus::UrlBar,
@@ -109,6 +185,10 @@ impl App {
     }
 
     fn handle_insert_key(&mut self, key: KeyEvent) {
+        if self.state.focus == Focus::Editor && self.state.active_tab == ActiveTab::Headers {
+            self.handle_headers_insert_key(key);
+            return;
+        }
         match key.code {
             KeyCode::Esc => self.state.mode = Mode::Normal,
             KeyCode::Enter => {
@@ -285,6 +365,133 @@ impl App {
                 }
             }
             RequestBody::Form(_) | RequestBody::Binary(_) => None,
+        }
+    }
+
+    fn headers_active_text_mut(
+        headers: &mut Vec<KeyValuePair>,
+        row: usize,
+        col: u8,
+    ) -> Option<&mut String> {
+        let pair = headers.get_mut(row)?;
+        if col == 0 { Some(&mut pair.key) } else { Some(&mut pair.value) }
+    }
+
+    fn handle_headers_insert_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.mode = Mode::Normal;
+            }
+            KeyCode::Char(c) => {
+                let cursor = self.state.request.headers_cursor;
+                let row = self.state.request.headers_row;
+                let col = self.state.request.headers_col;
+                if let Some(text) =
+                    Self::headers_active_text_mut(&mut self.state.request.headers, row, col)
+                {
+                    text.insert(cursor, c);
+                    self.state.request.headers_cursor = cursor + c.len_utf8();
+                }
+            }
+            KeyCode::Backspace => {
+                let cursor = self.state.request.headers_cursor;
+                let row = self.state.request.headers_row;
+                let col = self.state.request.headers_col;
+                if cursor > 0 {
+                    if let Some(text) =
+                        Self::headers_active_text_mut(&mut self.state.request.headers, row, col)
+                    {
+                        let prev = Self::prev_char_boundary_of(text, cursor);
+                        text.drain(prev..cursor);
+                        self.state.request.headers_cursor = prev;
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                let cursor = self.state.request.headers_cursor;
+                let row = self.state.request.headers_row;
+                let col = self.state.request.headers_col;
+                if let Some(text) =
+                    Self::headers_active_text_mut(&mut self.state.request.headers, row, col)
+                {
+                    if cursor < text.len() {
+                        let next = Self::next_char_boundary_of(text, cursor);
+                        text.drain(cursor..next);
+                    }
+                }
+            }
+            KeyCode::Left => {
+                let cursor = self.state.request.headers_cursor;
+                let row = self.state.request.headers_row;
+                let col = self.state.request.headers_col;
+                let new_cursor =
+                    if let Some(text) =
+                        Self::headers_active_text_mut(&mut self.state.request.headers, row, col)
+                    {
+                        Self::prev_char_boundary_of(text, cursor)
+                    } else {
+                        cursor
+                    };
+                self.state.request.headers_cursor = new_cursor;
+            }
+            KeyCode::Right => {
+                let cursor = self.state.request.headers_cursor;
+                let row = self.state.request.headers_row;
+                let col = self.state.request.headers_col;
+                let new_cursor =
+                    if let Some(text) =
+                        Self::headers_active_text_mut(&mut self.state.request.headers, row, col)
+                    {
+                        Self::next_char_boundary_of(text, cursor)
+                    } else {
+                        cursor
+                    };
+                self.state.request.headers_cursor = new_cursor;
+            }
+            KeyCode::Home => {
+                self.state.request.headers_cursor = 0;
+            }
+            KeyCode::End => {
+                let row = self.state.request.headers_row;
+                let col = self.state.request.headers_col;
+                let len = self.state.request.headers
+                    .get(row)
+                    .map(|p| if col == 0 { p.key.len() } else { p.value.len() })
+                    .unwrap_or(0);
+                self.state.request.headers_cursor = len;
+            }
+            KeyCode::Tab => {
+                let col = self.state.request.headers_col;
+                if col == 0 {
+                    self.state.request.headers_col = 1;
+                    let row = self.state.request.headers_row;
+                    let val_len = self.state.request.headers
+                        .get(row)
+                        .map(|p| p.value.len())
+                        .unwrap_or(0);
+                    self.state.request.headers_cursor = val_len;
+                } else {
+                    let next_row = self.state.request.headers_row + 1;
+                    if next_row >= self.state.request.headers.len() {
+                        self.state.request.headers.push(KeyValuePair::default());
+                    }
+                    self.state.request.headers_row =
+                        next_row.min(self.state.request.headers.len() - 1);
+                    self.state.request.headers_col = 0;
+                    self.state.request.headers_cursor = 0;
+                }
+            }
+            KeyCode::Enter => {
+                let next_row = self.state.request.headers_row + 1;
+                if next_row >= self.state.request.headers.len() {
+                    self.state.request.headers.push(KeyValuePair::default());
+                }
+                self.state.request.headers_row =
+                    next_row.min(self.state.request.headers.len() - 1);
+                self.state.request.headers_col = 0;
+                self.state.request.headers_cursor = 0;
+            }
+            _ => {}
         }
     }
 

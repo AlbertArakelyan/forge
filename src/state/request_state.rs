@@ -122,6 +122,12 @@ pub struct RequestState {
     pub body_cursor: usize,
     #[serde(default)]
     pub body_scroll_offset: u16,
+    #[serde(default)]
+    pub headers_row: usize,
+    #[serde(default)]
+    pub headers_col: u8,
+    #[serde(default)]
+    pub headers_cursor: usize,
 }
 
 impl Default for RequestState {
@@ -139,6 +145,9 @@ impl Default for RequestState {
             scripts: Scripts::default(),
             body_cursor: 0,
             body_scroll_offset: 0,
+            headers_row: 0,
+            headers_col: 0,
+            headers_cursor: 0,
         }
     }
 }
