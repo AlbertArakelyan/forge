@@ -26,7 +26,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     );
 
     let hints = Span::styled(
-        "  · ?:help · Ctrl+R:send · [/]:method · Tab:focus · q:quit",
+        "  · ?:help · Ctrl+R:send · [ ]:method · Tab:focus · q:quit",
         Style::default().fg(Color::Rgb(65, 72, 104)),
     );
 
