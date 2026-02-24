@@ -64,8 +64,14 @@ impl App {
             KeyCode::Tab => self.state.focus = self.state.focus.next(),
             KeyCode::BackTab => self.state.focus = self.state.focus.prev(),
             KeyCode::Char('i') | KeyCode::Enter => {
-                if matches!(self.state.focus, Focus::UrlBar) {
+                if matches!(self.state.focus, Focus::UrlBar | Focus::Editor) {
                     self.state.mode = Mode::Insert;
+                    // When entering Insert on the body editor, initialize body to Json if None
+                    if self.state.focus == Focus::Editor {
+                        if self.state.request.body == crate::state::request_state::RequestBody::None {
+                            self.state.request.body = crate::state::request_state::RequestBody::Json(String::new());
+                        }
+                    }
                 }
             }
             KeyCode::Char('[') => {
@@ -109,6 +115,13 @@ impl App {
                 if matches!(self.state.focus, Focus::UrlBar) {
                     self.state.mode = Mode::Normal;
                     self.send_request();
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    // Insert newline in body editor
+                    if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                        let cursor = self.state.request.body_cursor;
+                        text.insert(cursor, '\n');
+                        self.state.request.body_cursor = cursor + 1;
+                    }
                 }
             }
             KeyCode::Char(c) => {
@@ -116,75 +129,231 @@ impl App {
                     let cursor = self.state.request.url_cursor;
                     self.state.request.url.insert(cursor, c);
                     self.state.request.url_cursor += c.len_utf8();
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                        let cursor = self.state.request.body_cursor;
+                        text.insert(cursor, c);
+                        self.state.request.body_cursor = cursor + c.len_utf8();
+                    }
                 }
             }
             KeyCode::Backspace => {
                 if matches!(self.state.focus, Focus::UrlBar) {
                     let cursor = self.state.request.url_cursor;
                     if cursor > 0 {
-                        let prev = self.prev_char_boundary(cursor);
+                        let url = self.state.request.url.clone();
+                        let prev = Self::prev_char_boundary_of(&url, cursor);
                         self.state.request.url.drain(prev..cursor);
                         self.state.request.url_cursor = prev;
+                    }
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    if cursor > 0 {
+                        if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                            let prev = Self::prev_char_boundary_of(text, cursor);
+                            text.drain(prev..cursor);
+                            self.state.request.body_cursor = prev;
+                        }
                     }
                 }
             }
             KeyCode::Delete => {
                 if matches!(self.state.focus, Focus::UrlBar) {
                     let cursor = self.state.request.url_cursor;
-                    if cursor < self.state.request.url.len() {
-                        let next = self.next_char_boundary(cursor);
+                    let url = self.state.request.url.clone();
+                    if cursor < url.len() {
+                        let next = Self::next_char_boundary_of(&url, cursor);
                         self.state.request.url.drain(cursor..next);
+                    }
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    let body_len = match &self.state.request.body {
+                        crate::state::request_state::RequestBody::Json(s) |
+                        crate::state::request_state::RequestBody::Text(s) => s.len(),
+                        _ => 0,
+                    };
+                    if cursor < body_len {
+                        if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                            let next = Self::next_char_boundary_of(text, cursor);
+                            text.drain(cursor..next);
+                        }
                     }
                 }
             }
             KeyCode::Left => {
                 if matches!(self.state.focus, Focus::UrlBar) {
                     let cursor = self.state.request.url_cursor;
-                    self.state.request.url_cursor = self.prev_char_boundary(cursor);
+                    let url = self.state.request.url.clone();
+                    self.state.request.url_cursor = Self::prev_char_boundary_of(&url, cursor);
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    let new_cursor = if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                        Self::prev_char_boundary_of(text, cursor)
+                    } else {
+                        cursor
+                    };
+                    self.state.request.body_cursor = new_cursor;
                 }
             }
             KeyCode::Right => {
                 if matches!(self.state.focus, Focus::UrlBar) {
                     let cursor = self.state.request.url_cursor;
-                    self.state.request.url_cursor = self.next_char_boundary(cursor);
+                    let url = self.state.request.url.clone();
+                    self.state.request.url_cursor = Self::next_char_boundary_of(&url, cursor);
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    let new_cursor = if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                        Self::next_char_boundary_of(text, cursor)
+                    } else {
+                        cursor
+                    };
+                    self.state.request.body_cursor = new_cursor;
+                }
+            }
+            KeyCode::Up => {
+                if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    let body_snapshot = match &self.state.request.body {
+                        crate::state::request_state::RequestBody::Json(s) |
+                        crate::state::request_state::RequestBody::Text(s) => s.clone(),
+                        _ => String::new(),
+                    };
+                    self.state.request.body_cursor = Self::body_move_up(&body_snapshot, cursor);
+                }
+            }
+            KeyCode::Down => {
+                if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    let body_snapshot = match &self.state.request.body {
+                        crate::state::request_state::RequestBody::Json(s) |
+                        crate::state::request_state::RequestBody::Text(s) => s.clone(),
+                        _ => String::new(),
+                    };
+                    self.state.request.body_cursor = Self::body_move_down(&body_snapshot, cursor);
                 }
             }
             KeyCode::Home => {
                 if matches!(self.state.focus, Focus::UrlBar) {
                     self.state.request.url_cursor = 0;
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    let new_cursor = if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                        let before = &text[..cursor.min(text.len())];
+                        match before.rfind('\n') {
+                            Some(i) => i + 1,
+                            None => 0,
+                        }
+                    } else {
+                        cursor
+                    };
+                    self.state.request.body_cursor = new_cursor;
                 }
             }
             KeyCode::End => {
                 if matches!(self.state.focus, Focus::UrlBar) {
                     self.state.request.url_cursor = self.state.request.url.len();
+                } else if matches!(self.state.focus, Focus::Editor) {
+                    let cursor = self.state.request.body_cursor;
+                    let new_cursor = if let Some(text) = Self::body_text_mut(&mut self.state.request.body) {
+                        let after_start = cursor.min(text.len());
+                        let after = &text[after_start..];
+                        match after.find('\n') {
+                            Some(i) => after_start + i,
+                            None => text.len(),
+                        }
+                    } else {
+                        cursor
+                    };
+                    self.state.request.body_cursor = new_cursor;
                 }
             }
             _ => {}
         }
     }
 
-    fn prev_char_boundary(&self, pos: usize) -> usize {
+    /// Get a mutable reference to the body text string.
+    /// If body is None, initialize it to Json("").
+    fn body_text_mut(body: &mut crate::state::request_state::RequestBody) -> Option<&mut String> {
+        use crate::state::request_state::RequestBody;
+        match body {
+            RequestBody::Json(s) | RequestBody::Text(s) => Some(s),
+            RequestBody::None => {
+                *body = RequestBody::Json(String::new());
+                match body {
+                    RequestBody::Json(s) => Some(s),
+                    _ => None,
+                }
+            }
+            RequestBody::Form(_) | RequestBody::Binary(_) => None,
+        }
+    }
+
+    fn prev_char_boundary_of(text: &str, pos: usize) -> usize {
         if pos == 0 {
             return 0;
         }
-        let url = &self.state.request.url;
         let mut p = pos - 1;
-        while p > 0 && !url.is_char_boundary(p) {
+        while p > 0 && !text.is_char_boundary(p) {
             p -= 1;
         }
         p
     }
 
-    fn next_char_boundary(&self, pos: usize) -> usize {
-        let url = &self.state.request.url;
-        if pos >= url.len() {
-            return url.len();
+    fn next_char_boundary_of(text: &str, pos: usize) -> usize {
+        if pos >= text.len() {
+            return text.len();
         }
         let mut p = pos + 1;
-        while p < url.len() && !url.is_char_boundary(p) {
+        while p < text.len() && !text.is_char_boundary(p) {
             p += 1;
         }
         p
+    }
+
+    fn body_move_up(text: &str, cursor: usize) -> usize {
+        let clamped = cursor.min(text.len());
+        let before = &text[..clamped];
+        let lines: Vec<&str> = before.split('\n').collect();
+        let current_row = lines.len().saturating_sub(1);
+        let current_col = lines.last().map(|l| l.chars().count()).unwrap_or(0);
+        if current_row == 0 {
+            return 0; // already on first line
+        }
+        // Find start of the target row (current_row - 1)
+        let target_row = current_row - 1;
+        let rows: Vec<&str> = text.split('\n').collect();
+        let target_line = rows.get(target_row).copied().unwrap_or("");
+        let target_col = current_col.min(target_line.chars().count());
+        // Byte offset = sum of (len+1) for rows before target_row, plus col byte offset
+        let row_start: usize = rows[..target_row].iter().map(|l| l.len() + 1).sum();
+        let col_bytes: usize = target_line
+            .char_indices()
+            .nth(target_col)
+            .map(|(i, _)| i)
+            .unwrap_or(target_line.len());
+        row_start + col_bytes
+    }
+
+    fn body_move_down(text: &str, cursor: usize) -> usize {
+        let clamped = cursor.min(text.len());
+        let before = &text[..clamped];
+        let lines_before: Vec<&str> = before.split('\n').collect();
+        let current_row = lines_before.len().saturating_sub(1);
+        let current_col = lines_before.last().map(|l| l.chars().count()).unwrap_or(0);
+        let rows: Vec<&str> = text.split('\n').collect();
+        let target_row = current_row + 1;
+        if target_row >= rows.len() {
+            return text.len(); // already on last line, jump to end
+        }
+        let target_line = rows[target_row];
+        let target_col = current_col.min(target_line.chars().count());
+        let row_start: usize = rows[..target_row].iter().map(|l| l.len() + 1).sum();
+        let col_bytes: usize = target_line
+            .char_indices()
+            .nth(target_col)
+            .map(|(i, _)| i)
+            .unwrap_or(target_line.len());
+        row_start + col_bytes
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {

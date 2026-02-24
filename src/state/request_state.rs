@@ -118,6 +118,10 @@ pub struct RequestState {
     pub body: RequestBody,
     pub auth: AuthConfig,
     pub scripts: Scripts,
+    #[serde(default)]
+    pub body_cursor: usize,
+    #[serde(default)]
+    pub body_scroll_offset: u16,
 }
 
 impl Default for RequestState {
@@ -133,6 +137,8 @@ impl Default for RequestState {
             body: RequestBody::None,
             auth: AuthConfig::None,
             scripts: Scripts::default(),
+            body_cursor: 0,
+            body_scroll_offset: 0,
         }
     }
 }
