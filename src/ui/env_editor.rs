@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -94,6 +94,10 @@ pub fn render_switcher(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(" select  ", Style::default().fg(TEXT_MUTED)),
         Span::styled("e", Style::default().fg(TEXT_PRIMARY)),
         Span::styled(" edit  ", Style::default().fg(TEXT_MUTED)),
+        Span::styled("n", Style::default().fg(TEXT_PRIMARY)),
+        Span::styled(" new  ", Style::default().fg(TEXT_MUTED)),
+        Span::styled("d", Style::default().fg(TEXT_PRIMARY)),
+        Span::styled(" del  ", Style::default().fg(TEXT_MUTED)),
         Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
         Span::styled(" close", Style::default().fg(TEXT_MUTED)),
     ]);
@@ -197,6 +201,27 @@ pub fn render_editor(frame: &mut Frame, area: Rect, state: &AppState) {
             ]);
             let row_area = Rect { y, height: 1, ..body_area };
             frame.render_widget(Paragraph::new(line), row_area);
+        }
+    }
+
+    // Cursor when editing
+    if state.env_editor.editing {
+        if let Some(env) = env {
+            let cursor = state.env_editor.cursor;
+            let row = state.env_editor.row;
+            let col = state.env_editor.col;
+            if let Some(var) = env.variables.get(row) {
+                let row_y = body_area.y + row as u16;
+                if row_y < body_area.y + body_area.height {
+                    let (cell_x, text): (u16, &str) = match col {
+                        0 => (body_area.x + check_w, var.key.as_str()),
+                        1 => (body_area.x + check_w + key_w, var.value.as_str()),
+                        _ => (body_area.x + check_w + key_w + val_w, var.description.as_str()),
+                    };
+                    let col_offset = text[..cursor.min(text.len())].chars().count() as u16;
+                    frame.set_cursor_position(Position { x: cell_x + col_offset, y: row_y });
+                }
+            }
         }
     }
 

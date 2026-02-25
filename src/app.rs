@@ -168,6 +168,34 @@ impl App {
                 let i = self.state.environments.len() - 1;
                 self.state.env_switcher.selected = i;
             }
+            KeyCode::Char('d') if key.modifiers.is_empty() => {
+                // Delete the selected environment
+                let filter = self.state.env_switcher.search.to_lowercase();
+                let selected = self.state.env_switcher.selected;
+                let idx = self
+                    .state
+                    .environments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| filter.is_empty() || e.name.to_lowercase().contains(&filter))
+                    .nth(selected)
+                    .map(|(i, _)| i);
+                if let Some(i) = idx {
+                    let env_id = self.state.environments[i].id.clone();
+                    let _ = env_storage::delete(&env_id);
+                    self.state.environments.remove(i);
+                    // Update active_env_idx
+                    match self.state.active_env_idx {
+                        Some(ai) if ai == i => self.state.active_env_idx = None,
+                        Some(ai) if ai > i => self.state.active_env_idx = Some(ai - 1),
+                        _ => {}
+                    }
+                    // Clamp selected
+                    let count = self.filtered_env_count();
+                    self.state.env_switcher.selected =
+                        self.state.env_switcher.selected.min(count.saturating_sub(1));
+                }
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 let count = self.filtered_env_count();
                 if count > 0 {

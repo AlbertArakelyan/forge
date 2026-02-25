@@ -17,6 +17,15 @@ pub fn save(env: &Environment) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Delete the environment `.toml` file for the given id.
+pub fn delete(id: &str) -> anyhow::Result<()> {
+    let path = data_dir().join(format!("{}.toml", id));
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
 /// Load all `*.toml` files from the environments directory.
 pub fn load_all() -> Vec<Environment> {
     let dir = data_dir();
