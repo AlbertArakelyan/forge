@@ -71,11 +71,22 @@ pub struct EnvSwitcherState {
     pub selected: usize,
     pub search: String,
     pub search_cursor: usize,
+    /// Whether the user is currently typing a name for a new environment.
+    pub naming: bool,
+    pub new_name: String,
+    pub new_name_cursor: usize,
 }
 
 impl Default for EnvSwitcherState {
     fn default() -> Self {
-        Self { selected: 0, search: String::new(), search_cursor: 0 }
+        Self {
+            selected: 0,
+            search: String::new(),
+            search_cursor: 0,
+            naming: false,
+            new_name: String::new(),
+            new_name_cursor: 0,
+        }
     }
 }
 
@@ -93,6 +104,10 @@ pub struct EnvEditorState {
     pub show_secret: bool,
     /// Whether we are currently editing the cell (Insert mode for the editor).
     pub editing: bool,
+    /// Whether the user is currently editing the environment's name.
+    pub editing_name: bool,
+    /// Byte cursor within `environments[env_idx].name` during name editing.
+    pub name_cursor: usize,
 }
 
 impl Default for EnvEditorState {
@@ -104,6 +119,8 @@ impl Default for EnvEditorState {
             cursor: 0,
             show_secret: false,
             editing: false,
+            editing_name: false,
+            name_cursor: 0,
         }
     }
 }

@@ -106,6 +106,10 @@ impl App {
     }
 
     fn handle_env_switcher_key(&mut self, key: KeyEvent) {
+        if self.state.env_switcher.naming {
+            self.handle_env_switcher_naming_key(key);
+            return;
+        }
         match key.code {
             KeyCode::Esc => {
                 self.state.active_popup = ActivePopup::None;
@@ -162,11 +166,10 @@ impl App {
                 }
             }
             KeyCode::Char('n') if key.modifiers.is_empty() => {
-                // Create new environment
-                let new_env = Environment::default();
-                self.state.environments.push(new_env);
-                let i = self.state.environments.len() - 1;
-                self.state.env_switcher.selected = i;
+                // Enter naming mode — the environment is created after Enter
+                self.state.env_switcher.naming = true;
+                self.state.env_switcher.new_name = String::new();
+                self.state.env_switcher.new_name_cursor = 0;
             }
             KeyCode::Char('d') if key.modifiers.is_empty() => {
                 // Delete the selected environment
@@ -236,7 +239,75 @@ impl App {
             .count()
     }
 
+    fn handle_env_switcher_naming_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.env_switcher.naming = false;
+                self.state.env_switcher.new_name = String::new();
+            }
+            KeyCode::Enter => {
+                let name = if self.state.env_switcher.new_name.trim().is_empty() {
+                    "New Environment".to_string()
+                } else {
+                    self.state.env_switcher.new_name.trim().to_string()
+                };
+                let mut new_env = Environment::default();
+                new_env.name = name;
+                self.state.environments.push(new_env);
+                let i = self.state.environments.len() - 1;
+                self.state.env_switcher.selected = i;
+                self.state.env_switcher.naming = false;
+                self.state.env_switcher.new_name = String::new();
+                self.state.env_switcher.new_name_cursor = 0;
+            }
+            KeyCode::Char(c) => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                self.state.env_switcher.new_name.insert(cursor, c);
+                self.state.env_switcher.new_name_cursor = cursor + c.len_utf8();
+            }
+            KeyCode::Backspace => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                if cursor > 0 {
+                    let s = self.state.env_switcher.new_name.clone();
+                    let prev = Self::prev_char_boundary_of(&s, cursor);
+                    self.state.env_switcher.new_name.drain(prev..cursor);
+                    self.state.env_switcher.new_name_cursor = prev;
+                }
+            }
+            KeyCode::Delete => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                let len = self.state.env_switcher.new_name.len();
+                if cursor < len {
+                    let s = self.state.env_switcher.new_name.clone();
+                    let next = Self::next_char_boundary_of(&s, cursor);
+                    self.state.env_switcher.new_name.drain(cursor..next);
+                }
+            }
+            KeyCode::Left => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                let s = self.state.env_switcher.new_name.clone();
+                self.state.env_switcher.new_name_cursor = Self::prev_char_boundary_of(&s, cursor);
+            }
+            KeyCode::Right => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                let s = self.state.env_switcher.new_name.clone();
+                self.state.env_switcher.new_name_cursor = Self::next_char_boundary_of(&s, cursor);
+            }
+            KeyCode::Home => {
+                self.state.env_switcher.new_name_cursor = 0;
+            }
+            KeyCode::End => {
+                self.state.env_switcher.new_name_cursor = self.state.env_switcher.new_name.len();
+            }
+            _ => {}
+        }
+    }
+
     fn handle_env_editor_key(&mut self, key: KeyEvent) {
+        if self.state.env_editor.editing_name {
+            self.handle_env_name_edit_key(key);
+            return;
+        }
         if self.state.env_editor.editing {
             self.handle_env_editor_insert_key(key);
             return;
@@ -300,6 +371,14 @@ impl App {
             }
             KeyCode::Char('l') | KeyCode::Right => {
                 self.state.env_editor.col = (self.state.env_editor.col + 1).min(3);
+            }
+            KeyCode::Char('r') => {
+                // Enter name-editing mode
+                let idx = self.state.env_editor.env_idx;
+                if let Some(env) = self.state.environments.get(idx) {
+                    self.state.env_editor.name_cursor = env.name.len();
+                    self.state.env_editor.editing_name = true;
+                }
             }
             KeyCode::Char(' ') => {
                 let idx = self.state.env_editor.env_idx;
@@ -403,6 +482,73 @@ impl App {
             }
             KeyCode::End => {
                 self.state.env_editor.cursor = self.current_editor_field_len();
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_env_name_edit_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => {
+                self.state.env_editor.editing_name = false;
+                self.save_current_env();
+            }
+            KeyCode::Char(c) => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get_mut(idx) {
+                    env.name.insert(cursor, c);
+                    self.state.env_editor.name_cursor = cursor + c.len_utf8();
+                }
+            }
+            KeyCode::Backspace => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if cursor > 0 {
+                    if let Some(env) = self.state.environments.get_mut(idx) {
+                        let prev = Self::prev_char_boundary_of(&env.name, cursor);
+                        env.name.drain(prev..cursor);
+                        self.state.env_editor.name_cursor = prev;
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get_mut(idx) {
+                    if cursor < env.name.len() {
+                        let next = Self::next_char_boundary_of(&env.name, cursor);
+                        env.name.drain(cursor..next);
+                    }
+                }
+            }
+            KeyCode::Left => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get(idx) {
+                    self.state.env_editor.name_cursor =
+                        Self::prev_char_boundary_of(&env.name, cursor);
+                }
+            }
+            KeyCode::Right => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get(idx) {
+                    self.state.env_editor.name_cursor =
+                        Self::next_char_boundary_of(&env.name, cursor);
+                }
+            }
+            KeyCode::Home => {
+                self.state.env_editor.name_cursor = 0;
+            }
+            KeyCode::End => {
+                let idx = self.state.env_editor.env_idx;
+                self.state.env_editor.name_cursor = self
+                    .state
+                    .environments
+                    .get(idx)
+                    .map(|e| e.name.len())
+                    .unwrap_or(0);
             }
             _ => {}
         }

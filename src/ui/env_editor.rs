@@ -43,20 +43,33 @@ pub fn render_switcher(frame: &mut Frame, area: Rect, state: &AppState) {
         ])
         .split(inner);
 
-    // Search row
-    let search = &state.env_switcher.search;
-    let search_line = if search.is_empty() {
-        Line::from(Span::styled("Search…", Style::default().fg(TEXT_MUTED)))
+    // Search / naming row
+    if state.env_switcher.naming {
+        let new_name = &state.env_switcher.new_name;
+        let name_line = Line::from(vec![
+            Span::styled("Name: ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(new_name.clone(), Style::default().fg(TEXT_PRIMARY)),
+        ]);
+        frame.render_widget(Paragraph::new(name_line), chunks[0]);
+        let col_offset = new_name[..state.env_switcher.new_name_cursor.min(new_name.len())]
+            .chars()
+            .count() as u16;
+        frame.set_cursor_position(Position { x: chunks[0].x + 6 + col_offset, y: chunks[0].y });
     } else {
-        Line::from(vec![
-            Span::styled("/ ", Style::default().fg(ACCENT_BLUE)),
-            Span::raw(search.clone()),
-        ])
-    };
-    frame.render_widget(Paragraph::new(search_line), chunks[0]);
+        let search = &state.env_switcher.search;
+        let search_line = if search.is_empty() {
+            Line::from(Span::styled("Search…", Style::default().fg(TEXT_MUTED)))
+        } else {
+            Line::from(vec![
+                Span::styled("/ ", Style::default().fg(ACCENT_BLUE)),
+                Span::raw(search.clone()),
+            ])
+        };
+        frame.render_widget(Paragraph::new(search_line), chunks[0]);
+    }
 
     // Filtered environment list
-    let filter = search.to_lowercase();
+    let filter = state.env_switcher.search.to_lowercase();
     let envs_filtered: Vec<(usize, &str)> = state
         .environments
         .iter()
@@ -89,18 +102,27 @@ pub fn render_switcher(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 
     // Hint bar
-    let hint = Line::from(vec![
-        Span::styled("Enter", Style::default().fg(TEXT_PRIMARY)),
-        Span::styled(" select  ", Style::default().fg(TEXT_MUTED)),
-        Span::styled("e", Style::default().fg(TEXT_PRIMARY)),
-        Span::styled(" edit  ", Style::default().fg(TEXT_MUTED)),
-        Span::styled("n", Style::default().fg(TEXT_PRIMARY)),
-        Span::styled(" new  ", Style::default().fg(TEXT_MUTED)),
-        Span::styled("d", Style::default().fg(TEXT_PRIMARY)),
-        Span::styled(" del  ", Style::default().fg(TEXT_MUTED)),
-        Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
-        Span::styled(" close", Style::default().fg(TEXT_MUTED)),
-    ]);
+    let hint = if state.env_switcher.naming {
+        Line::from(vec![
+            Span::styled("Enter", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" confirm  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" cancel", Style::default().fg(TEXT_MUTED)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("Enter", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" select  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("e", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" edit  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("n", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" new  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("d", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" del  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" close", Style::default().fg(TEXT_MUTED)),
+        ])
+    };
     frame.render_widget(
         Paragraph::new(hint).style(Style::default().add_modifier(Modifier::DIM)),
         chunks[2],
@@ -124,19 +146,42 @@ pub fn render_editor(frame: &mut Frame, area: Rect, state: &AppState) {
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
-    if inner.height < 3 {
+    if inner.height < 4 {
         return;
     }
 
-    // Layout: [header=1] [rows=rest-1] [hint=1]
+    // Layout: [name=1] [header=1] [rows=rest] [hint=1]
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(1),
             Constraint::Length(1),
         ])
         .split(inner);
+
+    // Name row
+    let name_style = if state.env_editor.editing_name {
+        Style::default().fg(Color::White).add_modifier(Modifier::UNDERLINED)
+    } else {
+        Style::default().fg(TEXT_PRIMARY)
+    };
+    let name_line = Line::from(vec![
+        Span::styled("  Name: ", Style::default().fg(TEXT_MUTED)),
+        Span::styled(env_name, name_style),
+    ]);
+    frame.render_widget(Paragraph::new(name_line), chunks[0]);
+
+    // Cursor when editing the name
+    if state.env_editor.editing_name {
+        if let Some(env) = env {
+            let col_offset = env.name[..state.env_editor.name_cursor.min(env.name.len())]
+                .chars()
+                .count() as u16;
+            frame.set_cursor_position(Position { x: inner.x + 8 + col_offset, y: chunks[0].y });
+        }
+    }
 
     // Column widths: [check=4] [key=%30] [value=%30] [desc=rest-4] [type=8]
     let w = inner.width;
@@ -155,10 +200,10 @@ pub fn render_editor(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(pad_right("Description", desc_w as usize), Style::default().fg(Color::Yellow)),
         Span::styled("Type    ", Style::default().fg(Color::Yellow)),
     ]);
-    frame.render_widget(Paragraph::new(header_line), chunks[0]);
+    frame.render_widget(Paragraph::new(header_line), chunks[1]);
 
     // Variable rows
-    let body_area = chunks[1];
+    let body_area = chunks[2];
     let sel_row = state.env_editor.row;
     let sel_col = state.env_editor.col;
 
@@ -233,6 +278,8 @@ pub fn render_editor(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(" del  ", Style::default().fg(TEXT_MUTED)),
         Span::styled("i/Enter", Style::default().fg(TEXT_PRIMARY)),
         Span::styled(" edit  ", Style::default().fg(TEXT_MUTED)),
+        Span::styled("r", Style::default().fg(TEXT_PRIMARY)),
+        Span::styled(" rename  ", Style::default().fg(TEXT_MUTED)),
         Span::styled("Space", Style::default().fg(TEXT_PRIMARY)),
         Span::styled(" toggle  ", Style::default().fg(TEXT_MUTED)),
         Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
@@ -240,7 +287,7 @@ pub fn render_editor(frame: &mut Frame, area: Rect, state: &AppState) {
     ]);
     frame.render_widget(
         Paragraph::new(hint).style(Style::default().add_modifier(Modifier::DIM)),
-        chunks[2],
+        chunks[3],
     );
 }
 
