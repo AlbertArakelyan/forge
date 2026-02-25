@@ -6,8 +6,8 @@
 - [ ] Round 2 — Environment Variables
 - [ ] Round 3 — Collections & Workspaces
 - [ ] Round 4 — Authentication
-- [ ] Round 5 — Request Headers & Query Params
-- [ ] Round 6 — Request Body Editor
+- [ ] Round 5 — Request Headers & Query Params (Done Partly)
+- [ ] Round 6 — Request Body Editor (Done Partly)
 - [ ] Round 7 — Response Viewer
 - [ ] Round 8 — History
 - [ ] Round 9 — Scripting (Pre/Post Hooks)
@@ -48,3 +48,44 @@
 - `tokio-util` 0.7: `CancellationToken` lives under feature `"rt"`, not `"sync"` (doesn't exist)
 - Mouse wheel scroll wired up in Normal mode via `MouseEventKind::ScrollUp/Down`
 - Response scroll offset clamped to prevent over-scrolling past content
+
+---
+
+## Round 5 — Request Headers & Query Params (Done Partly)
+
+### What's Implemented
+
+**Key-Value Editor** — generic reusable component built for the Headers tab:
+- Add / remove key-value rows
+- Toggle individual rows enabled/disabled
+- Navigate rows with `j`/`k`, edit cells in Insert mode
+- Used in `ui/request/headers_editor.rs` (or equivalent); can be re-used for Query Params, form body, etc.
+
+### Missing / Not Yet Implemented
+
+| Feature | Status |
+|---|---|
+| Query Params tab | Not started |
+| `{{variable}}` interpolation in header values | Not started |
+| Bidirectional URL ↔ Query Params sync | Blocked on Query Params |
+
+---
+
+## Round 6 — Request Body Editor (Done Partly)
+
+### What's Implemented
+
+**Raw JSON Body Editor** — basic body editing for JSON requests:
+- Raw text editor for JSON body content
+- Wired into the Body tab of the request panel
+
+### Missing / Not Yet Implemented
+
+| Feature | Status |
+|---|---|
+| Body type selector (JSON / Form / Multipart / GraphQL / Raw / Binary) | Not started |
+| Form URL-encoded body (key-value editor) | Not started |
+| Multipart form body | Not started |
+| GraphQL body (query + variables) | Not started |
+| Raw body (plain text, XML, etc.) | Not started |
+| Binary file upload | Not started |
