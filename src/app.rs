@@ -25,11 +25,13 @@ pub struct App {
 impl App {
     pub fn new(tx: UnboundedSender<Event>) -> Self {
         let environments = env_storage::load_all();
+        let active_env_idx = if environments.is_empty() { None } else { Some(0) };
         Self {
             state: AppState {
                 sidebar_visible: true,
                 dirty: true,
                 environments,
+                active_env_idx,
                 ..Default::default()
             },
             client: build_client(),
@@ -256,6 +258,7 @@ impl App {
                 self.state.environments.push(new_env);
                 let i = self.state.environments.len() - 1;
                 self.state.env_switcher.selected = i;
+                self.state.active_env_idx = Some(i);
                 self.state.env_switcher.naming = false;
                 self.state.env_switcher.new_name = String::new();
                 self.state.env_switcher.new_name_cursor = 0;
