@@ -131,7 +131,7 @@ impl App {
                 }
                 self.state.active_popup = ActivePopup::None;
             }
-            KeyCode::Char('e') if key.modifiers.is_empty() => {
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::ALT) => {
                 // Open editor for selected environment
                 let filter = self.state.env_switcher.search.to_lowercase();
                 let selected = self.state.env_switcher.selected;
@@ -165,13 +165,13 @@ impl App {
                     self.state.active_popup = ActivePopup::EnvEditor;
                 }
             }
-            KeyCode::Char('n') if key.modifiers.is_empty() => {
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::ALT) => {
                 // Enter naming mode — the environment is created after Enter
                 self.state.env_switcher.naming = true;
                 self.state.env_switcher.new_name = String::new();
                 self.state.env_switcher.new_name_cursor = 0;
             }
-            KeyCode::Char('d') if key.modifiers.is_empty() => {
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::ALT) => {
                 // Delete the selected environment
                 let filter = self.state.env_switcher.search.to_lowercase();
                 let selected = self.state.env_switcher.selected;
