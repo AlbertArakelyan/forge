@@ -6,11 +6,19 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
+use crate::env::interpolator::parse_vars;
+use crate::env::resolver::resolver_from_state;
+use crate::env::resolver::VarStatus;
 use crate::state::app_state::{AppState, RequestStatus};
 use crate::state::focus::Focus;
 use crate::state::mode::Mode;
 use crate::state::request_state::HttpMethod;
 use super::super::layout::{ACCENT_BLUE, BORDER_INACTIVE, SPINNER_FRAMES};
+
+// TokyoNight colors for variable highlighting
+const ENV_VAR_RESOLVED: Color = Color::Rgb(42, 195, 222);   // #2ac3de cyan
+const ENV_VAR_UNRESOLVED: Color = Color::Rgb(247, 118, 142); // #f7768e red
+const TEXT_MUTED: Color = Color::Rgb(86, 95, 137);
 
 fn method_color(method: &HttpMethod) -> Color {
     match method {
@@ -60,9 +68,28 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         chunks[1],
     );
 
-    // URL input
-    let url_line = build_url_line(state, focused);
-    frame.render_widget(Paragraph::new(url_line), chunks[2]);
+    // URL input area — split vertically if there's room for ghost text
+    let url_area = chunks[2];
+    let has_vars = !parse_vars(&state.request.url).is_empty();
+    if url_area.height >= 2 && has_vars {
+        let url_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
+            .split(url_area);
+        let url_line = build_url_line(state, focused);
+        frame.render_widget(Paragraph::new(url_line), url_chunks[0]);
+        // Ghost resolved text
+        let resolver = resolver_from_state(state);
+        let resolved = resolver.resolve_for_send(&state.request.url);
+        let ghost_line = Line::from(vec![
+            Span::styled("→ ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(resolved, Style::default().fg(TEXT_MUTED)),
+        ]);
+        frame.render_widget(Paragraph::new(ghost_line), url_chunks[1]);
+    } else {
+        let url_line = build_url_line(state, focused);
+        frame.render_widget(Paragraph::new(url_line), url_area);
+    }
 
     // Separator
     frame.render_widget(
@@ -96,28 +123,149 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn build_url_line(state: &AppState, focused: bool) -> Line<'static> {
-    if matches!(state.mode, Mode::Insert) && focused {
-        let url = &state.request.url;
-        let cursor = state.request.url_cursor;
-        let before = url[..cursor].to_string();
-        let (cursor_char, after) = if cursor < url.len() {
-            let ch = url[cursor..].chars().next().unwrap();
-            let next_byte = cursor + ch.len_utf8();
-            (ch.to_string(), url[next_byte..].to_string())
-        } else {
-            (" ".to_string(), String::new())
-        };
-        Line::from(vec![
-            Span::raw(before),
-            Span::styled(cursor_char, Style::default().bg(Color::White).fg(Color::Black)),
-            Span::raw(after),
-        ])
-    } else if state.request.url.is_empty() {
-        Line::from(Span::styled(
+    let url = &state.request.url;
+    let cursor = state.request.url_cursor;
+
+    if url.is_empty() {
+        return Line::from(Span::styled(
             "Enter URL or paste text…",
             Style::default().fg(Color::Rgb(65, 72, 104)),
-        ))
-    } else {
-        Line::from(Span::raw(state.request.url.clone()))
+        ));
     }
+
+    let var_spans = parse_vars(url);
+
+    if matches!(state.mode, Mode::Insert) && focused {
+        // Insert mode with cursor — show cursor block, and color variables
+        if var_spans.is_empty() {
+            // No variables: simple cursor rendering
+            let before = url[..cursor].to_string();
+            let (cursor_char, after) = if cursor < url.len() {
+                let ch = url[cursor..].chars().next().unwrap();
+                let next_byte = cursor + ch.len_utf8();
+                (ch.to_string(), url[next_byte..].to_string())
+            } else {
+                (" ".to_string(), String::new())
+            };
+            Line::from(vec![
+                Span::raw(before),
+                Span::styled(cursor_char, Style::default().bg(Color::White).fg(Color::Black)),
+                Span::raw(after),
+            ])
+        } else {
+            build_highlighted_url_with_cursor(url, cursor, &var_spans, state)
+        }
+    } else {
+        // Normal mode — color variables
+        if var_spans.is_empty() {
+            Line::from(Span::raw(url.clone()))
+        } else {
+            build_highlighted_url(url, &var_spans, state)
+        }
+    }
+}
+
+/// Build a highlighted URL line for normal mode (no cursor block).
+fn build_highlighted_url(url: &str, var_spans: &[(usize, usize, String)], state: &AppState) -> Line<'static> {
+    let resolver = resolver_from_state(state);
+    let mut spans = Vec::new();
+    let mut last = 0;
+
+    for (start, end, name) in var_spans {
+        if *start > last {
+            spans.push(Span::raw(url[last..*start].to_string()));
+        }
+        let resolved = resolver.resolve(&url[*start..*end]);
+        let is_resolved = resolved.spans.first().map(|s| !matches!(s.status, VarStatus::Unresolved)).unwrap_or(false);
+        let final_color = if is_resolved { ENV_VAR_RESOLVED } else { ENV_VAR_UNRESOLVED };
+        spans.push(Span::styled(
+            format!("{{{{{}}}}}", name),
+            Style::default().fg(final_color),
+        ));
+        last = *end;
+    }
+    if last < url.len() {
+        spans.push(Span::raw(url[last..].to_string()));
+    }
+
+    Line::from(spans)
+}
+
+/// Build a highlighted URL line with cursor block in Insert mode.
+fn build_highlighted_url_with_cursor(
+    url: &str,
+    cursor: usize,
+    var_spans: &[(usize, usize, String)],
+    state: &AppState,
+) -> Line<'static> {
+    let resolver = resolver_from_state(state);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut last = 0;
+    let mut cursor_placed = false;
+
+    // Helper closure to insert cursor within a plain text segment
+    let place_cursor_in_segment = |text: &str, seg_start: usize, cursor: usize, spans: &mut Vec<Span<'static>>, placed: &mut bool| {
+        if !*placed && cursor >= seg_start && cursor <= seg_start + text.len() {
+            let local = cursor - seg_start;
+            let before = text[..local].to_string();
+            let (cur_char, after) = if local < text.len() {
+                let ch = text[local..].chars().next().unwrap();
+                let nb = local + ch.len_utf8();
+                (ch.to_string(), text[nb..].to_string())
+            } else {
+                (" ".to_string(), String::new())
+            };
+            if !before.is_empty() { spans.push(Span::raw(before)); }
+            spans.push(Span::styled(cur_char, Style::default().bg(Color::White).fg(Color::Black)));
+            if !after.is_empty() { spans.push(Span::raw(after)); }
+            *placed = true;
+        } else {
+            spans.push(Span::raw(text.to_string()));
+        }
+    };
+
+    for (start, end, name) in var_spans {
+        // Plain text before this variable span
+        if *start > last {
+            let seg = &url[last..*start];
+            place_cursor_in_segment(seg, last, cursor, &mut spans, &mut cursor_placed);
+        }
+
+        // The variable span itself
+        let is_resolved = {
+            let resolved = resolver.resolve(&url[*start..*end]);
+            resolved.spans.first().map(|s| !matches!(s.status, VarStatus::Unresolved)).unwrap_or(false)
+        };
+        let final_color = if is_resolved { ENV_VAR_RESOLVED } else { ENV_VAR_UNRESOLVED };
+
+        // Check if cursor is inside the variable placeholder
+        if !cursor_placed && cursor >= *start && cursor < *end {
+            // Place cursor block on the opening `{`
+            spans.push(Span::styled(
+                format!("{{{{{}}}}}", name),
+                Style::default().fg(final_color).bg(Color::Rgb(60, 60, 80)),
+            ));
+            cursor_placed = true;
+        } else {
+            spans.push(Span::styled(
+                format!("{{{{{}}}}}", name),
+                Style::default().fg(final_color),
+            ));
+        }
+
+        last = *end;
+    }
+
+    // Remaining text after last variable
+    if last < url.len() {
+        let seg = &url[last..];
+        place_cursor_in_segment(seg, last, cursor, &mut spans, &mut cursor_placed);
+    }
+
+    // If cursor is at the very end
+    if !cursor_placed {
+        spans.push(Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black)));
+    }
+
+    Line::from(spans)
 }

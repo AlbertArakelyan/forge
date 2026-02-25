@@ -4,8 +4,9 @@ use ratatui::{
     style::Color,
 };
 
-use crate::state::app_state::{ActiveTab, AppState};
+use crate::state::app_state::{ActivePopup, ActiveTab, AppState};
 use super::{
+    env_editor,
     sidebar,
     status_bar,
     request::{
@@ -79,6 +80,13 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     body_viewer::render(frame, chunks[5], state);
 
     status_bar::render(frame, status_area, state);
+
+    // Overlay popups — rendered last so they appear on top
+    match &state.active_popup {
+        ActivePopup::None => {}
+        ActivePopup::EnvSwitcher => env_editor::render_switcher(frame, area, state),
+        ActivePopup::EnvEditor => env_editor::render_editor(frame, area, state),
+    }
 }
 
 /// Helper used by sub-widgets to decide whether a rect is visible
