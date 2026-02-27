@@ -805,16 +805,16 @@ pub enum VarStatus {
 
 ### Implementation Tasks
 
-- [ ] Implement `EnvResolver` with layered variable resolution
-- [ ] Implement `{{variable}}` parser (handle nested braces, escaping)
+- [x] Implement `EnvResolver` with layered variable resolution
+- [x] Implement `{{variable}}` parser (handle nested braces, escaping)
 - [ ] Implement variable interpolation in URL, headers, body, auth fields
-- [ ] Implement variable span highlighting in URL bar
-- [ ] Implement environment editor TUI widget (table, CRUD)
-- [ ] Implement environment switcher popup
+- [x] Implement variable span highlighting in URL bar
+- [x] Implement environment editor TUI widget (table, CRUD)
+- [x] Implement environment switcher popup
 - [ ] Implement secret variable encryption (AES-256-GCM, machine-local key)
 - [ ] Implement "unresolved variable" warning indicator
-- [ ] Persist environment files to disk on change
-- [ ] Load environment files on startup
+- [x] Persist environment files to disk on change
+- [x] Load environment files on startup
 
 ---
 

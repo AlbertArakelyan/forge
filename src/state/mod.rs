@@ -1,4 +1,5 @@
 pub mod app_state;
+pub mod environment;
 pub mod focus;
 pub mod mode;
 pub mod workspace;

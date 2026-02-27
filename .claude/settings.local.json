@@ -5,7 +5,8 @@
       "Bash(cd /c/Users/alber/Desktop/forge && cargo test 2>&1)",
       "Bash(echo No tokio-util in lock yet:*)",
       "WebFetch(domain:docs.rs)",
-      "Bash(cd \"C:\\\\Users\\\\alber\\\\Desktop\\\\forge\" && cargo check 2>&1)"
+      "Bash(cd \"C:\\\\Users\\\\alber\\\\Desktop\\\\forge\" && cargo check 2>&1)",
+      "Bash(ls:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

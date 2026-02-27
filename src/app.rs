@@ -5,11 +5,14 @@ use tokio_util::sync::CancellationToken;
 use crate::error::AppError;
 use crate::event::Event;
 use crate::http::{client::build_client, executor::execute};
-use crate::state::app_state::{ActiveTab, AppState, RequestStatus};
-use crate::state::request_state::KeyValuePair;
+use crate::state::app_state::{ActivePopup, ActiveTab, AppState, RequestStatus};
+use crate::state::environment::{EnvVariable, Environment, VarType};
 use crate::state::focus::Focus;
 use crate::state::mode::Mode;
+use crate::state::request_state::KeyValuePair;
 use crate::state::response_state::{ResponseBody, ResponseState};
+use crate::env::resolver::resolver_from_state;
+use crate::storage::environment as env_storage;
 use crate::ui::highlight::{detect_lang, highlight_text};
 
 pub struct App {
@@ -21,10 +24,14 @@ pub struct App {
 
 impl App {
     pub fn new(tx: UnboundedSender<Event>) -> Self {
+        let environments = env_storage::load_all();
+        let active_env_idx = if environments.is_empty() { None } else { Some(0) };
         Self {
             state: AppState {
                 sidebar_visible: true,
                 dirty: true,
+                environments,
+                active_env_idx,
                 ..Default::default()
             },
             client: build_client(),
@@ -42,6 +49,28 @@ impl App {
                     && key.modifiers.contains(KeyModifiers::CONTROL)
                 {
                     self.send_request();
+                    return;
+                }
+                // Ctrl+E: toggle environment switcher popup
+                if key.code == KeyCode::Char('e')
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    match self.state.active_popup {
+                        ActivePopup::None => {
+                            self.state.active_popup = ActivePopup::EnvSwitcher;
+                            self.state.env_switcher.selected = 0;
+                            self.state.env_switcher.search.clear();
+                            self.state.env_switcher.search_cursor = 0;
+                        }
+                        ActivePopup::EnvSwitcher | ActivePopup::EnvEditor => {
+                            self.state.active_popup = ActivePopup::None;
+                        }
+                    }
+                    return;
+                }
+                // If a popup is open, route all keys to it
+                if self.state.active_popup != ActivePopup::None {
+                    self.handle_popup_key(key);
                     return;
                 }
                 match self.state.mode {
@@ -65,6 +94,507 @@ impl App {
             Event::Resize(_, _) => self.state.dirty = true,
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Popup key handling
+    // -------------------------------------------------------------------------
+
+    fn handle_popup_key(&mut self, key: KeyEvent) {
+        match self.state.active_popup {
+            ActivePopup::EnvSwitcher => self.handle_env_switcher_key(key),
+            ActivePopup::EnvEditor => self.handle_env_editor_key(key),
+            ActivePopup::None => {}
+        }
+    }
+
+    fn handle_env_switcher_key(&mut self, key: KeyEvent) {
+        if self.state.env_switcher.naming {
+            self.handle_env_switcher_naming_key(key);
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                self.state.active_popup = ActivePopup::None;
+            }
+            KeyCode::Enter => {
+                // Activate the selected environment
+                let filter = self.state.env_switcher.search.to_lowercase();
+                let selected = self.state.env_switcher.selected;
+                let idx = self
+                    .state
+                    .environments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| filter.is_empty() || e.name.to_lowercase().contains(&filter))
+                    .nth(selected)
+                    .map(|(i, _)| i);
+                if let Some(i) = idx {
+                    self.state.active_env_idx = Some(i);
+                }
+                self.state.active_popup = ActivePopup::None;
+            }
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::ALT) => {
+                // Open editor for selected environment
+                let filter = self.state.env_switcher.search.to_lowercase();
+                let selected = self.state.env_switcher.selected;
+                let idx = self
+                    .state
+                    .environments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| filter.is_empty() || e.name.to_lowercase().contains(&filter))
+                    .nth(selected)
+                    .map(|(i, _)| i);
+                if let Some(i) = idx {
+                    self.state.env_editor.env_idx = i;
+                    self.state.env_editor.row = 0;
+                    self.state.env_editor.col = 0;
+                    self.state.env_editor.cursor = 0;
+                    self.state.env_editor.editing = false;
+                    self.state.env_editor.show_secret = false;
+                    self.state.active_popup = ActivePopup::EnvEditor;
+                } else if self.state.environments.is_empty() {
+                    // No environments — create a new one and open editor
+                    let new_env = Environment::default();
+                    self.state.environments.push(new_env);
+                    let i = self.state.environments.len() - 1;
+                    self.state.env_editor.env_idx = i;
+                    self.state.env_editor.row = 0;
+                    self.state.env_editor.col = 0;
+                    self.state.env_editor.cursor = 0;
+                    self.state.env_editor.editing = false;
+                    self.state.env_editor.show_secret = false;
+                    self.state.active_popup = ActivePopup::EnvEditor;
+                }
+            }
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::ALT) => {
+                // Enter naming mode — the environment is created after Enter
+                self.state.env_switcher.naming = true;
+                self.state.env_switcher.new_name = String::new();
+                self.state.env_switcher.new_name_cursor = 0;
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::ALT) => {
+                // Delete the selected environment
+                let filter = self.state.env_switcher.search.to_lowercase();
+                let selected = self.state.env_switcher.selected;
+                let idx = self
+                    .state
+                    .environments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| filter.is_empty() || e.name.to_lowercase().contains(&filter))
+                    .nth(selected)
+                    .map(|(i, _)| i);
+                if let Some(i) = idx {
+                    let env_id = self.state.environments[i].id.clone();
+                    let _ = env_storage::delete(&env_id);
+                    self.state.environments.remove(i);
+                    // Update active_env_idx
+                    match self.state.active_env_idx {
+                        Some(ai) if ai == i => self.state.active_env_idx = None,
+                        Some(ai) if ai > i => self.state.active_env_idx = Some(ai - 1),
+                        _ => {}
+                    }
+                    // Clamp selected
+                    let count = self.filtered_env_count();
+                    self.state.env_switcher.selected =
+                        self.state.env_switcher.selected.min(count.saturating_sub(1));
+                }
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let count = self.filtered_env_count();
+                if count > 0 {
+                    self.state.env_switcher.selected =
+                        (self.state.env_switcher.selected + 1).min(count - 1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.state.env_switcher.selected =
+                    self.state.env_switcher.selected.saturating_sub(1);
+            }
+            KeyCode::Backspace => {
+                let cursor = self.state.env_switcher.search_cursor;
+                if cursor > 0 {
+                    let search = self.state.env_switcher.search.clone();
+                    let prev = Self::prev_char_boundary_of(&search, cursor);
+                    self.state.env_switcher.search.drain(prev..cursor);
+                    self.state.env_switcher.search_cursor = prev;
+                    self.state.env_switcher.selected = 0;
+                }
+            }
+            KeyCode::Char(c) => {
+                let cursor = self.state.env_switcher.search_cursor;
+                self.state.env_switcher.search.insert(cursor, c);
+                self.state.env_switcher.search_cursor += c.len_utf8();
+                self.state.env_switcher.selected = 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn filtered_env_count(&self) -> usize {
+        let filter = self.state.env_switcher.search.to_lowercase();
+        self.state
+            .environments
+            .iter()
+            .filter(|e| filter.is_empty() || e.name.to_lowercase().contains(&filter))
+            .count()
+    }
+
+    fn handle_env_switcher_naming_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.env_switcher.naming = false;
+                self.state.env_switcher.new_name = String::new();
+            }
+            KeyCode::Enter => {
+                let name = if self.state.env_switcher.new_name.trim().is_empty() {
+                    "New Environment".to_string()
+                } else {
+                    self.state.env_switcher.new_name.trim().to_string()
+                };
+                let mut new_env = Environment::default();
+                new_env.name = name;
+                self.state.environments.push(new_env);
+                let i = self.state.environments.len() - 1;
+                self.state.env_switcher.selected = i;
+                self.state.active_env_idx = Some(i);
+                self.state.env_switcher.naming = false;
+                self.state.env_switcher.new_name = String::new();
+                self.state.env_switcher.new_name_cursor = 0;
+            }
+            KeyCode::Char(c) => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                self.state.env_switcher.new_name.insert(cursor, c);
+                self.state.env_switcher.new_name_cursor = cursor + c.len_utf8();
+            }
+            KeyCode::Backspace => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                if cursor > 0 {
+                    let s = self.state.env_switcher.new_name.clone();
+                    let prev = Self::prev_char_boundary_of(&s, cursor);
+                    self.state.env_switcher.new_name.drain(prev..cursor);
+                    self.state.env_switcher.new_name_cursor = prev;
+                }
+            }
+            KeyCode::Delete => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                let len = self.state.env_switcher.new_name.len();
+                if cursor < len {
+                    let s = self.state.env_switcher.new_name.clone();
+                    let next = Self::next_char_boundary_of(&s, cursor);
+                    self.state.env_switcher.new_name.drain(cursor..next);
+                }
+            }
+            KeyCode::Left => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                let s = self.state.env_switcher.new_name.clone();
+                self.state.env_switcher.new_name_cursor = Self::prev_char_boundary_of(&s, cursor);
+            }
+            KeyCode::Right => {
+                let cursor = self.state.env_switcher.new_name_cursor;
+                let s = self.state.env_switcher.new_name.clone();
+                self.state.env_switcher.new_name_cursor = Self::next_char_boundary_of(&s, cursor);
+            }
+            KeyCode::Home => {
+                self.state.env_switcher.new_name_cursor = 0;
+            }
+            KeyCode::End => {
+                self.state.env_switcher.new_name_cursor = self.state.env_switcher.new_name.len();
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_env_editor_key(&mut self, key: KeyEvent) {
+        if self.state.env_editor.editing_name {
+            self.handle_env_name_edit_key(key);
+            return;
+        }
+        if self.state.env_editor.editing {
+            self.handle_env_editor_insert_key(key);
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                // Save and close
+                self.save_current_env();
+                self.state.active_popup = ActivePopup::None;
+            }
+            KeyCode::Char('i') | KeyCode::Enter => {
+                // Start editing the current cell (except checkbox and type toggle cols)
+                let col = self.state.env_editor.col;
+                if col < 3 {
+                    self.state.env_editor.editing = true;
+                    // Set cursor to end of current field
+                    let cursor = self.current_editor_field_len();
+                    self.state.env_editor.cursor = cursor;
+                }
+            }
+            KeyCode::Char('a') => {
+                // Add a new variable row
+                let idx = self.state.env_editor.env_idx;
+                if let Some(env) = self.state.environments.get_mut(idx) {
+                    env.variables.push(EnvVariable::default());
+                    self.state.env_editor.row = env.variables.len() - 1;
+                    self.state.env_editor.col = 0;
+                    self.state.env_editor.cursor = 0;
+                    self.state.env_editor.editing = true;
+                }
+            }
+            KeyCode::Char('d') => {
+                // Delete current row
+                let idx = self.state.env_editor.env_idx;
+                if let Some(env) = self.state.environments.get_mut(idx) {
+                    let row = self.state.env_editor.row;
+                    if row < env.variables.len() {
+                        env.variables.remove(row);
+                        let new_len = env.variables.len();
+                        if new_len > 0 {
+                            self.state.env_editor.row = row.min(new_len - 1);
+                        } else {
+                            self.state.env_editor.row = 0;
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                let idx = self.state.env_editor.env_idx;
+                let len = self.state.environments.get(idx).map(|e| e.variables.len()).unwrap_or(0);
+                if len > 0 {
+                    self.state.env_editor.row =
+                        (self.state.env_editor.row + 1).min(len - 1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.state.env_editor.row = self.state.env_editor.row.saturating_sub(1);
+            }
+            KeyCode::Char('h') | KeyCode::Left => {
+                self.state.env_editor.col = self.state.env_editor.col.saturating_sub(1);
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                self.state.env_editor.col = (self.state.env_editor.col + 1).min(3);
+            }
+            KeyCode::Char('r') => {
+                // Enter name-editing mode
+                let idx = self.state.env_editor.env_idx;
+                if let Some(env) = self.state.environments.get(idx) {
+                    self.state.env_editor.name_cursor = env.name.len();
+                    self.state.env_editor.editing_name = true;
+                }
+            }
+            KeyCode::Char(' ') => {
+                let idx = self.state.env_editor.env_idx;
+                let row = self.state.env_editor.row;
+                let col = self.state.env_editor.col;
+                if let Some(env) = self.state.environments.get_mut(idx) {
+                    if let Some(var) = env.variables.get_mut(row) {
+                        match col {
+                            0 => var.enabled = !var.enabled,
+                            3 => {
+                                // Toggle secret/text
+                                var.var_type = if var.var_type == VarType::Secret {
+                                    VarType::Text
+                                } else {
+                                    VarType::Secret
+                                };
+                            }
+                            _ => {
+                                // Toggle show_secret when on value col
+                                if col == 1 {
+                                    self.state.env_editor.show_secret = !self.state.env_editor.show_secret;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_env_editor_insert_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => {
+                self.state.env_editor.editing = false;
+            }
+            KeyCode::Tab => {
+                self.state.env_editor.editing = false;
+                let col = self.state.env_editor.col;
+                if col < 2 {
+                    self.state.env_editor.col = col + 1;
+                    self.state.env_editor.cursor = self.current_editor_field_len();
+                    self.state.env_editor.editing = true;
+                } else {
+                    self.state.env_editor.col = 0;
+                    // Move to next row
+                    let idx = self.state.env_editor.env_idx;
+                    let len = self.state.environments.get(idx).map(|e| e.variables.len()).unwrap_or(0);
+                    let next_row = self.state.env_editor.row + 1;
+                    if next_row >= len {
+                        if let Some(env) = self.state.environments.get_mut(idx) {
+                            env.variables.push(EnvVariable::default());
+                        }
+                    }
+                    let new_len = self.state.environments.get(idx).map(|e| e.variables.len()).unwrap_or(0);
+                    self.state.env_editor.row = next_row.min(new_len.saturating_sub(1));
+                    self.state.env_editor.cursor = 0;
+                    self.state.env_editor.editing = true;
+                }
+            }
+            KeyCode::Char(c) => {
+                let cursor = self.state.env_editor.cursor;
+                if let Some(field) = self.current_editor_field_mut() {
+                    field.insert(cursor, c);
+                    self.state.env_editor.cursor = cursor + c.len_utf8();
+                }
+            }
+            KeyCode::Backspace => {
+                let cursor = self.state.env_editor.cursor;
+                if cursor > 0 {
+                    if let Some(field) = self.current_editor_field_mut() {
+                        let prev = Self::prev_char_boundary_of(field, cursor);
+                        field.drain(prev..cursor);
+                        self.state.env_editor.cursor = prev;
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                let cursor = self.state.env_editor.cursor;
+                if let Some(field) = self.current_editor_field_mut() {
+                    if cursor < field.len() {
+                        let next = Self::next_char_boundary_of(field, cursor);
+                        field.drain(cursor..next);
+                    }
+                }
+            }
+            KeyCode::Left => {
+                let cursor = self.state.env_editor.cursor;
+                if let Some(field) = self.current_editor_field_mut() {
+                    self.state.env_editor.cursor = Self::prev_char_boundary_of(field, cursor);
+                }
+            }
+            KeyCode::Right => {
+                let cursor = self.state.env_editor.cursor;
+                if let Some(field) = self.current_editor_field_mut() {
+                    self.state.env_editor.cursor = Self::next_char_boundary_of(field, cursor);
+                }
+            }
+            KeyCode::Home => {
+                self.state.env_editor.cursor = 0;
+            }
+            KeyCode::End => {
+                self.state.env_editor.cursor = self.current_editor_field_len();
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_env_name_edit_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => {
+                self.state.env_editor.editing_name = false;
+                self.save_current_env();
+            }
+            KeyCode::Char(c) => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get_mut(idx) {
+                    env.name.insert(cursor, c);
+                    self.state.env_editor.name_cursor = cursor + c.len_utf8();
+                }
+            }
+            KeyCode::Backspace => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if cursor > 0 {
+                    if let Some(env) = self.state.environments.get_mut(idx) {
+                        let prev = Self::prev_char_boundary_of(&env.name, cursor);
+                        env.name.drain(prev..cursor);
+                        self.state.env_editor.name_cursor = prev;
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get_mut(idx) {
+                    if cursor < env.name.len() {
+                        let next = Self::next_char_boundary_of(&env.name, cursor);
+                        env.name.drain(cursor..next);
+                    }
+                }
+            }
+            KeyCode::Left => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get(idx) {
+                    self.state.env_editor.name_cursor =
+                        Self::prev_char_boundary_of(&env.name, cursor);
+                }
+            }
+            KeyCode::Right => {
+                let idx = self.state.env_editor.env_idx;
+                let cursor = self.state.env_editor.name_cursor;
+                if let Some(env) = self.state.environments.get(idx) {
+                    self.state.env_editor.name_cursor =
+                        Self::next_char_boundary_of(&env.name, cursor);
+                }
+            }
+            KeyCode::Home => {
+                self.state.env_editor.name_cursor = 0;
+            }
+            KeyCode::End => {
+                let idx = self.state.env_editor.env_idx;
+                self.state.env_editor.name_cursor = self
+                    .state
+                    .environments
+                    .get(idx)
+                    .map(|e| e.name.len())
+                    .unwrap_or(0);
+            }
+            _ => {}
+        }
+    }
+
+    fn current_editor_field_len(&self) -> usize {
+        let idx = self.state.env_editor.env_idx;
+        let row = self.state.env_editor.row;
+        let col = self.state.env_editor.col;
+        self.state.environments.get(idx)
+            .and_then(|e| e.variables.get(row))
+            .map(|v| match col {
+                0 => v.key.len(),
+                1 => v.value.len(),
+                2 => v.description.len(),
+                _ => 0,
+            })
+            .unwrap_or(0)
+    }
+
+    fn current_editor_field_mut(&mut self) -> Option<&mut String> {
+        let idx = self.state.env_editor.env_idx;
+        let row = self.state.env_editor.row;
+        let col = self.state.env_editor.col;
+        let var = self.state.environments.get_mut(idx)?.variables.get_mut(row)?;
+        match col {
+            0 => Some(&mut var.key),
+            1 => Some(&mut var.value),
+            2 => Some(&mut var.description),
+            _ => None,
+        }
+    }
+
+    fn save_current_env(&self) {
+        let idx = self.state.env_editor.env_idx;
+        if let Some(env) = self.state.environments.get(idx) {
+            let _ = env_storage::save(env);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Normal key handling (unchanged from Round 1)
+    // -------------------------------------------------------------------------
 
     fn handle_normal_key(&mut self, key: KeyEvent) {
         match key.code {
@@ -528,14 +1058,12 @@ impl App {
         let current_row = lines.len().saturating_sub(1);
         let current_col = lines.last().map(|l| l.chars().count()).unwrap_or(0);
         if current_row == 0 {
-            return 0; // already on first line
+            return 0;
         }
-        // Find start of the target row (current_row - 1)
         let target_row = current_row - 1;
         let rows: Vec<&str> = text.split('\n').collect();
         let target_line = rows.get(target_row).copied().unwrap_or("");
         let target_col = current_col.min(target_line.chars().count());
-        // Byte offset = sum of (len+1) for rows before target_row, plus col byte offset
         let row_start: usize = rows[..target_row].iter().map(|l| l.len() + 1).sum();
         let col_bytes: usize = target_line
             .char_indices()
@@ -554,7 +1082,7 @@ impl App {
         let rows: Vec<&str> = text.split('\n').collect();
         let target_row = current_row + 1;
         if target_row >= rows.len() {
-            return text.len(); // already on last line, jump to end
+            return text.len();
         }
         let target_line = rows[target_row];
         let target_col = current_col.min(target_line.chars().count());
@@ -587,7 +1115,6 @@ impl App {
         self.cancel = None;
         match result {
             Ok(mut response) => {
-                // Pre-compute syntax highlighting once so the renderer never does it.
                 if let ResponseBody::Text(text) = &response.body {
                     let lang = detect_lang(text);
                     response.highlighted_body = Some(highlight_text(text, lang));
@@ -623,8 +1150,18 @@ impl App {
         self.state.request_status = RequestStatus::Loading { spinner_tick: 0 };
         self.state.response = None;
 
+        // Build resolver and resolve URL + headers before cloning for the task
+        let resolver = resolver_from_state(&self.state);
+        let mut request = self.state.request.clone();
+        request.url = resolver.resolve_for_send(&request.url);
+        for header in &mut request.headers {
+            if header.enabled {
+                header.key = resolver.resolve_for_send(&header.key);
+                header.value = resolver.resolve_for_send(&header.value);
+            }
+        }
+
         let client = self.client.clone();
-        let request = self.state.request.clone();
         let tx = self.tx.clone();
 
         tokio::spawn(async move {
