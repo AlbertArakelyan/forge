@@ -908,15 +908,15 @@ pub struct RequestTab {
 
 ### Implementation Tasks
 
-- [ ] Implement sidebar tree widget with collapse/expand
-- [ ] Implement collection CRUD (new, rename, delete, duplicate)
-- [ ] Implement folder support inside collections
-- [ ] Implement request tabs in main panel
-- [ ] Implement workspace switcher popup
-- [ ] Implement sidebar fuzzy search
-- [ ] Implement file persistence for collections (TOML files)
-- [ ] Implement auto-save on request modification
-- [ ] Implement workspace-level CRUD
+- [x] Implement sidebar tree widget with collapse/expand
+- [x] Implement collection CRUD (new, rename, delete, duplicate)
+- [x] Implement folder support inside collections
+- [x] Implement request tabs in main panel
+- [x] Implement workspace switcher popup
+- [x] Implement sidebar fuzzy search
+- [x] Implement file persistence for collections (TOML files)
+- [x] Implement auto-save on request modification
+- [x] Implement workspace-level CRUD
 - [ ] Display unsaved indicator (`*`) on dirty requests/tabs
 
 ---
