@@ -808,6 +808,7 @@ impl App {
     // ─── Collection naming popup ──────────────────────────────────────────────
 
     fn handle_naming_key(&mut self, key: KeyEvent) {
+        let is_new_request = matches!(self.state.naming.target, NamingTarget::NewRequest { .. });
         match key.code {
             KeyCode::Esc => {
                 self.state.active_popup = ActivePopup::None;
@@ -816,6 +817,15 @@ impl App {
             KeyCode::Enter => {
                 self.confirm_naming();
                 self.state.active_popup = ActivePopup::None;
+            }
+            KeyCode::Tab if is_new_request => {
+                self.state.naming.method = cycle_method_next(&self.state.naming.method);
+            }
+            KeyCode::Right if is_new_request => {
+                self.state.naming.method = cycle_method_next(&self.state.naming.method);
+            }
+            KeyCode::Left if is_new_request => {
+                self.state.naming.method = cycle_method_prev(&self.state.naming.method);
             }
             KeyCode::Char(c) => {
                 let cursor = self.state.naming.cursor;
@@ -890,7 +900,8 @@ impl App {
                 }
             }
             NamingTarget::NewRequest { collection_id, folder_id } => {
-                let req = CollectionRequest::new(&input);
+                let mut req = CollectionRequest::new(&input);
+                req.method = self.state.naming.method.clone();
                 if let Some(col) = self
                     .state
                     .workspace
@@ -1201,11 +1212,10 @@ impl App {
                 }
             }
             // Sidebar-specific keys
-            KeyCode::Char('N') if self.state.focus == Focus::Sidebar => {
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) && self.state.focus == Focus::Sidebar => {
                 self.state.naming = NamingState {
                     target: NamingTarget::NewCollection,
-                    input: String::new(),
-                    cursor: 0,
+                    ..NamingState::default()
                 };
                 self.state.active_popup = ActivePopup::CollectionNaming;
             }
@@ -1214,8 +1224,8 @@ impl App {
                 let target = self.sidebar_new_request_target();
                 self.state.naming = NamingState {
                     target,
-                    input: String::new(),
-                    cursor: 0,
+                    method: "GET".to_string(),
+                    ..NamingState::default()
                 };
                 self.state.active_popup = ActivePopup::CollectionNaming;
             }
@@ -1224,8 +1234,7 @@ impl App {
                 let target = self.sidebar_new_folder_target();
                 self.state.naming = NamingState {
                     target,
-                    input: String::new(),
-                    cursor: 0,
+                    ..NamingState::default()
                 };
                 self.state.active_popup = ActivePopup::CollectionNaming;
             }
@@ -1377,6 +1386,7 @@ impl App {
                 },
                 input: node.label.clone(),
                 cursor: node.label.len(),
+                ..NamingState::default()
             };
             self.state.active_popup = ActivePopup::CollectionNaming;
         }
@@ -2064,6 +2074,20 @@ impl HttpMethodExt for crate::state::request_state::HttpMethod {
             _ => HttpMethod::Get,
         }
     }
+}
+
+// ─── HTTP method cycling ──────────────────────────────────────────────────────
+
+const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+fn cycle_method_next(m: &str) -> String {
+    let pos = METHODS.iter().position(|&x| x == m).unwrap_or(0);
+    METHODS[(pos + 1) % METHODS.len()].to_string()
+}
+
+fn cycle_method_prev(m: &str) -> String {
+    let pos = METHODS.iter().position(|&x| x == m).unwrap_or(0);
+    METHODS[(pos + METHODS.len() - 1) % METHODS.len()].to_string()
 }
 
 // ─── Collection tree helpers ──────────────────────────────────────────────────

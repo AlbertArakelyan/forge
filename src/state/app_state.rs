@@ -161,11 +161,23 @@ impl Default for NamingTarget {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct NamingState {
     pub target: NamingTarget,
     pub input: String,
     pub cursor: usize,
+    pub method: String,
+}
+
+impl Default for NamingState {
+    fn default() -> Self {
+        Self {
+            target: NamingTarget::default(),
+            input: String::new(),
+            cursor: 0,
+            method: "GET".to_string(),
+        }
+    }
 }
 
 // ─── Round 3: Delete confirmation popup ──────────────────────────────────────

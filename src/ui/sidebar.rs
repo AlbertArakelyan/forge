@@ -150,25 +150,21 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let nodes = flatten_tree(state);
 
-    // Split into list area + optional search bar
-    let (list_area, search_area) = if state.sidebar.search_mode {
-        if inner.height < 3 {
-            (inner, None)
-        } else {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(1)])
-                .split(inner);
-            (chunks[0], Some(chunks[1]))
-        }
-    } else {
+    // Always reserve the last 1 row for the footer (hints or search bar)
+    let (list_area, footer_area) = if inner.height < 3 {
         (inner, None)
+    } else {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
     };
 
     // Empty state
     if nodes.is_empty() && !state.sidebar.search_mode {
         let hint = Paragraph::new(Line::from(Span::styled(
-            "N: new collection",
+            "Ctrl+n: new collection",
             Style::default().fg(TEXT_MUTED).add_modifier(Modifier::DIM),
         )));
         frame.render_widget(hint, list_area);
@@ -253,21 +249,32 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         }
     }
 
-    // Search bar at bottom
-    if let Some(sa) = search_area {
-        let search_text = if state.sidebar.search_mode {
-            format!("/{}", state.sidebar.search_query)
+    // Footer: search bar when searching, otherwise key hints
+    if let Some(fa) = footer_area {
+        if state.sidebar.search_mode {
+            let search_line = Line::from(vec![
+                Span::styled("/ ", Style::default().fg(ACCENT_BLUE)),
+                Span::styled(
+                    state.sidebar.search_query.clone(),
+                    Style::default().fg(TEXT_PRIMARY),
+                ),
+            ]);
+            frame.render_widget(Paragraph::new(search_line), fa);
         } else {
-            String::new()
-        };
-        let search_line = Line::from(vec![
-            Span::styled("/ ", Style::default().fg(ACCENT_BLUE)),
-            Span::styled(
-                state.sidebar.search_query.clone(),
-                Style::default().fg(TEXT_PRIMARY),
-            ),
-        ]);
-        let _ = search_text; // used for length calculation elsewhere
-        frame.render_widget(Paragraph::new(search_line), sa);
+            let hints = Line::from(vec![
+                Span::styled("^n", Style::default().fg(ACCENT_BLUE)),
+                Span::styled(" col  ", Style::default().fg(TEXT_MUTED)),
+                Span::styled("n", Style::default().fg(ACCENT_BLUE)),
+                Span::styled(" req  ", Style::default().fg(TEXT_MUTED)),
+                Span::styled("d", Style::default().fg(ACCENT_BLUE)),
+                Span::styled(" del  ", Style::default().fg(TEXT_MUTED)),
+                Span::styled("/", Style::default().fg(ACCENT_BLUE)),
+                Span::styled(" search", Style::default().fg(TEXT_MUTED)),
+            ]);
+            frame.render_widget(
+                Paragraph::new(hints).style(Style::default().add_modifier(Modifier::DIM)),
+                fa,
+            );
+        }
     }
 }

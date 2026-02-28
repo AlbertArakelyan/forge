@@ -15,10 +15,15 @@ const TEXT_PRIMARY: Color = Color::Rgb(192, 202, 245);
 const BG: Color = Color::Rgb(26, 27, 38);
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
+    let is_new_request = matches!(state.naming.target, NamingTarget::NewRequest { .. });
+
     let popup_area = centered_rect(50, 30, area);
-    // Clamp height to at most 7 rows
     let popup_area = Rect {
-        height: popup_area.height.min(7).max(5),
+        height: if is_new_request {
+            popup_area.height.min(9).max(6)
+        } else {
+            popup_area.height.min(7).max(5)
+        },
         ..popup_area
     };
 
@@ -44,13 +49,24 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
+    let constraints = if is_new_request {
+        vec![
+            Constraint::Length(1), // input
+            Constraint::Length(1), // method row
+            Constraint::Length(1), // separator
+            Constraint::Length(1), // footer
+        ]
+    } else {
+        vec![
+            Constraint::Min(1),    // input
+            Constraint::Length(1), // separator
+            Constraint::Length(1), // footer
+        ]
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
+        .constraints(constraints)
         .split(inner);
 
     // Input field
@@ -84,24 +100,60 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         y: chunks[0].y,
     });
 
-    // Separator
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            "─".repeat(inner.width as usize),
-            Style::default().fg(TEXT_MUTED),
-        ))),
-        chunks[1],
-    );
+    if is_new_request {
+        // Method row
+        let method_line = Line::from(vec![
+            Span::styled("◀ ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(
+                state.naming.method.clone(),
+                Style::default().fg(ACCENT_BLUE).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" ▶", Style::default().fg(TEXT_MUTED)),
+        ]);
+        frame.render_widget(Paragraph::new(method_line), chunks[1]);
 
-    // Footer hints
-    let hint = Line::from(vec![
-        Span::styled("Enter", Style::default().fg(TEXT_PRIMARY)),
-        Span::styled(" confirm  ", Style::default().fg(TEXT_MUTED)),
-        Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
-        Span::styled(" cancel", Style::default().fg(TEXT_MUTED)),
-    ]);
-    frame.render_widget(
-        Paragraph::new(hint).style(Style::default().add_modifier(Modifier::DIM)),
-        chunks[2],
-    );
+        // Separator
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "─".repeat(inner.width as usize),
+                Style::default().fg(TEXT_MUTED),
+            ))),
+            chunks[2],
+        );
+
+        // Footer hints (with Tab method)
+        let hint = Line::from(vec![
+            Span::styled("Enter", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" confirm  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("Tab", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" method  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" cancel", Style::default().fg(TEXT_MUTED)),
+        ]);
+        frame.render_widget(
+            Paragraph::new(hint).style(Style::default().add_modifier(Modifier::DIM)),
+            chunks[3],
+        );
+    } else {
+        // Separator
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "─".repeat(inner.width as usize),
+                Style::default().fg(TEXT_MUTED),
+            ))),
+            chunks[1],
+        );
+
+        // Footer hints
+        let hint = Line::from(vec![
+            Span::styled("Enter", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" confirm  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled("Esc", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" cancel", Style::default().fg(TEXT_MUTED)),
+        ]);
+        frame.render_widget(
+            Paragraph::new(hint).style(Style::default().add_modifier(Modifier::DIM)),
+            chunks[2],
+        );
+    }
 }
