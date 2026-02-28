@@ -16,12 +16,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         ("Timing", ResponseTab::Timing),
     ];
 
+    let response_tab = state.active_tab().map(|t| &t.response_tab);
+
     let mut spans: Vec<Span<'static>> = Vec::new();
     for (i, (name, tab)) in tabs.iter().enumerate() {
         if i > 0 {
             spans.push(Span::raw("  "));
         }
-        let style = if *tab == state.response_tab {
+        let style = if response_tab == Some(tab) {
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::UNDERLINED)

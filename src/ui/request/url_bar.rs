@@ -42,6 +42,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // Get request from active tab
+    let Some(tab) = state.active_tab() else {
+        return;
+    };
+    let request = &tab.request;
+    let request_status = &tab.request_status;
+
     // [method 9] [│] [url flex] [│] [send 8]
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -55,9 +62,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(inner);
 
     // Method badge
-    let mc = method_color(&state.request.method);
+    let mc = method_color(&request.method);
     let method_para = Paragraph::new(Line::from(Span::styled(
-        state.request.method.as_str(),
+        request.method.as_str(),
         Style::default().fg(mc).add_modifier(Modifier::BOLD),
     )));
     frame.render_widget(method_para, chunks[0]);
@@ -70,7 +77,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // URL input area — split vertically if there's room for ghost text
     let url_area = chunks[2];
-    let has_vars = !parse_vars(&state.request.url).is_empty();
+    let has_vars = !parse_vars(&request.url).is_empty();
     if url_area.height >= 2 && has_vars {
         let url_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -80,7 +87,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         frame.render_widget(Paragraph::new(url_line), url_chunks[0]);
         // Ghost resolved text
         let resolver = resolver_from_state(state);
-        let resolved = resolver.resolve_for_send(&state.request.url);
+        let resolved = resolver.resolve_for_send(&request.url);
         let ghost_line = Line::from(vec![
             Span::styled("→ ", Style::default().fg(TEXT_MUTED)),
             Span::styled(resolved, Style::default().fg(TEXT_MUTED)),
@@ -99,7 +106,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // Send button — rendered per-branch to avoid a heap allocation for the
     // common idle case where the label is a &'static str.
-    match &state.request_status {
+    match request_status {
         RequestStatus::Loading { spinner_tick } => {
             let idx = (*spinner_tick as usize) % SPINNER_FRAMES.len();
             frame.render_widget(
@@ -123,8 +130,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn build_url_line(state: &AppState, focused: bool) -> Line<'static> {
-    let url = &state.request.url;
-    let cursor = state.request.url_cursor;
+    let Some(tab) = state.active_tab() else {
+        return Line::from(Span::styled(
+            "No active tab",
+            Style::default().fg(Color::Rgb(65, 72, 104)),
+        ));
+    };
+    let url = &tab.request.url;
+    let cursor = tab.request.url_cursor;
 
     if url.is_empty() {
         return Line::from(Span::styled(

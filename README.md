@@ -95,7 +95,7 @@ Every request, collection, environment, and workspace is a human-readable TOML f
 
 - [x] **Round 1** - Core Request Engine (URL bar, HTTP executor, response viewer, syntax highlighting)
 - [x] **Round 2** - Environment Variables (`{{variable}}` interpolation, env switcher, secret vars) (partly - [more details here](SPEC.md#implementation-tasks-1))
-- [ ] **Round 3** - Collections & Workspaces (sidebar tree, tabs, file persistence)
+- [x] **Round 3** - Collections & Workspaces (sidebar tree, tabs, file persistence)
 - [ ] **Round 4** - Authentication (Basic, Bearer, API Key, OAuth 2.0, Digest)
 - [ ] **Round 5** - Request Headers & Query Params (key-value editors, autocomplete, bidirectional URL sync)
 - [ ] **Round 6** - Request Body Editor (JSON, Form, Multipart, GraphQL, Raw, Binary)

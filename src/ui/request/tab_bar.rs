@@ -19,13 +19,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     ];
 
     let tab_focused = state.focus == Focus::TabBar;
+    let active_tab = state.active_tab().map(|t| &t.active_tab);
 
     let mut spans: Vec<Span<'static>> = Vec::new();
     for (i, (name, tab)) in tabs.iter().enumerate() {
         if i > 0 {
             spans.push(Span::raw("  "));
         }
-        let is_active = *tab == state.active_tab;
+        let is_active = active_tab == Some(tab);
         let style = if is_active {
             Style::default()
                 .fg(Color::Cyan)

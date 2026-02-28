@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Focus {
     Sidebar,
+    RequestTabs,
     #[default]
     UrlBar,
     TabBar,
@@ -9,10 +10,11 @@ pub enum Focus {
 }
 
 impl Focus {
-    /// Cycle order: Sidebar → UrlBar → TabBar → Editor → ResponseViewer → Sidebar
+    /// Cycle order: Sidebar → RequestTabs → UrlBar → TabBar → Editor → ResponseViewer → Sidebar
     pub fn next(&self) -> Focus {
         match self {
-            Focus::Sidebar => Focus::UrlBar,
+            Focus::Sidebar => Focus::RequestTabs,
+            Focus::RequestTabs => Focus::UrlBar,
             Focus::UrlBar => Focus::TabBar,
             Focus::TabBar => Focus::Editor,
             Focus::Editor => Focus::ResponseViewer,
@@ -23,7 +25,8 @@ impl Focus {
     pub fn prev(&self) -> Focus {
         match self {
             Focus::Sidebar => Focus::ResponseViewer,
-            Focus::UrlBar => Focus::Sidebar,
+            Focus::RequestTabs => Focus::Sidebar,
+            Focus::UrlBar => Focus::RequestTabs,
             Focus::TabBar => Focus::UrlBar,
             Focus::Editor => Focus::TabBar,
             Focus::ResponseViewer => Focus::Editor,

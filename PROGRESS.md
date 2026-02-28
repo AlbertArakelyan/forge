@@ -4,7 +4,7 @@
 
 - [x] Round 1 — Core Request Engine
 - [x] Round 2 — Environment Variables (partly - [more details here](SPEC.md#implementation-tasks-1))
-- [ ] Round 3 — Collections & Workspaces
+- [x] Round 3 — Collections & Workspaces
 - [ ] Round 4 — Authentication
 - [ ] Round 5 — Request Headers & Query Params (Done Partly)
 - [ ] Round 6 — Request Body Editor (Done Partly)
@@ -121,6 +121,51 @@
 - `resolve()` vs `resolve_for_send()` split keeps display masking decoupled from HTTP transmission
 - `filtered_env_count()` prevents selection overflow when search narrows the list
 - Environment file IDs are UUIDs → files survive renames without path changes
+
+---
+
+## Round 3 — Collections & Workspaces ✓
+
+### Files Implemented (13 new/major files)
+
+| Layer | Files |
+|---|---|
+| State | `state/collection.rs`, `state/workspace.rs`, `state/app_state.rs` (major migration) |
+| Storage | `storage/workspace.rs`, `storage/collection.rs` |
+| UI | `ui/sidebar.rs` (full rewrite), `ui/request_tabs.rs`, `ui/naming_popup.rs`, `ui/confirm_delete.rs`, `ui/workspace_switcher.rs` |
+| App Logic | `app.rs` (sidebar CRUD, tab management, workspace switching) |
+
+### Architecture
+
+- **AppState migration**: `state.request`/`state.response` → `state.workspace.open_tabs[active_tab_idx]`; accessed via `state.active_tab()` / `state.active_tab_mut()`
+- **Environments moved**: `state.environments` → `state.workspace.environments`; `state.active_env_idx` → `state.workspace.active_environment_idx`
+- **Storage path**: `%APPDATA%/forge/workspaces/<ws-name>/` (Windows) / XDG / macOS equivalents
+- **Sidebar tree**: `SidebarNode` enum flattened to a list via `flatten_collections()`; collapsed node IDs tracked in `sidebar.collapsed_ids: HashSet<Uuid>`
+- **Tabs**: `WorkspaceState.open_tabs: Vec<RequestTab>`; `active_tab_idx` tracks focus; tabs persist to `workspace.toml`
+
+### Keybindings Added
+
+| Key | Action |
+|---|---|
+| `Ctrl+W` | Workspace switcher popup |
+| `Ctrl+n` (Sidebar) | New collection |
+| `n` (Sidebar) | New request |
+| `f` (Sidebar) | New folder |
+| `r` (Sidebar) | Rename selected item |
+| `d` (Sidebar) | Delete selected item |
+| `D` (Sidebar) | Duplicate selected item |
+| `h` / `l` (Sidebar) | Collapse / expand node |
+| `/` (Sidebar) | Toggle search mode |
+| `Alt+1–9` | Switch to tab N |
+| `Alt+w` | Close active tab |
+| `[` / `]` | Cycle open tabs (non-UrlBar focus) |
+
+### Gotchas & Fixes
+
+- Sidebar search runs inline at the footer row (repurposed hint row); `NamingState` carries the HTTP method for new requests so method persists through the naming popup flow
+- `active_tab()` returns `Option<&RequestTab>` — all render functions must handle `None` gracefully
+- Workspace save triggered on every tab/request mutation via `dirty` flag; debounced via the Tick event
+- `flatten_collections()` recurses into folders and respects `collapsed_ids` to hide children
 
 ---
 

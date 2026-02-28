@@ -34,14 +34,19 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
-    let (text, lang) = match &state.request.body {
+    let Some(tab) = state.active_tab() else {
+        return;
+    };
+    let request = &tab.request;
+
+    let (text, lang) = match &request.body {
         RequestBody::Json(s) => (s.as_str(), "json"),
         RequestBody::Text(s) => (s.as_str(), "txt"),
         RequestBody::None | RequestBody::Form(_) | RequestBody::Binary(_) => ("", "json"),
     };
 
-    let scroll = state.request.body_scroll_offset;
-    let cursor = state.request.body_cursor;
+    let scroll = request.body_scroll_offset;
+    let cursor = request.body_cursor;
 
     if text.is_empty() && state.mode != Mode::Insert {
         // Show placeholder when empty and not editing

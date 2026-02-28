@@ -7,3 +7,7 @@ pub mod popup;
 pub mod highlight;
 pub mod request;
 pub mod response;
+pub mod request_tabs;
+pub mod naming_popup;
+pub mod confirm_delete;
+pub mod workspace_switcher;
