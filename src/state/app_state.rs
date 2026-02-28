@@ -1,10 +1,12 @@
+use std::collections::HashSet;
+
 use super::{
-    environment::Environment,
     focus::Focus,
     mode::Mode,
-    request_state::RequestState,
-    response_state::ResponseState,
+    workspace::{RequestTab, WorkspaceState},
 };
+
+// ─── Request/Response tab enums ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ActiveTab {
@@ -55,23 +57,26 @@ pub enum RequestStatus {
     Error(String),
 }
 
-/// Which overlay popup (if any) is currently visible.
+// ─── Popup discriminant ───────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ActivePopup {
     #[default]
     None,
     EnvSwitcher,
     EnvEditor,
+    WorkspaceSwitcher,
+    CollectionNaming,
+    ConfirmDelete,
 }
 
-/// State for the environment switcher popup.
+// ─── Env popup state (unchanged from Round 2) ─────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct EnvSwitcherState {
-    /// Currently highlighted row in the filtered list.
     pub selected: usize,
     pub search: String,
     pub search_cursor: usize,
-    /// Whether the user is currently typing a name for a new environment.
     pub naming: bool,
     pub new_name: String,
     pub new_name_cursor: usize,
@@ -90,23 +95,15 @@ impl Default for EnvSwitcherState {
     }
 }
 
-/// State for the environment editor popup.
 #[derive(Debug, Clone)]
 pub struct EnvEditorState {
-    /// Index into `AppState.environments` being edited.
     pub env_idx: usize,
-    /// Selected row (variable index).
     pub row: usize,
-    /// Selected column: 0=key, 1=value, 2=description, 3=type.
     pub col: u8,
-    /// Byte cursor within the currently edited cell.
     pub cursor: usize,
     pub show_secret: bool,
-    /// Whether we are currently editing the cell (Insert mode for the editor).
     pub editing: bool,
-    /// Whether the user is currently editing the environment's name.
     pub editing_name: bool,
-    /// Byte cursor within `environments[env_idx].name` during name editing.
     pub name_cursor: usize,
 }
 
@@ -125,25 +122,93 @@ impl Default for EnvEditorState {
     }
 }
 
+// ─── Round 3: Sidebar state ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct SidebarState {
+    pub cursor: usize,
+    pub collapsed_ids: HashSet<String>,
+    pub search_mode: bool,
+    pub search_query: String,
+    pub scroll_offset: usize,
+}
+
+// ─── Round 3: Workspace switcher popup ───────────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceSwitcherState {
+    pub selected: usize,
+    pub search: String,
+    pub search_cursor: usize,
+    pub naming: bool,
+    pub new_name: String,
+    pub new_name_cursor: usize,
+}
+
+// ─── Round 3: Collection/folder/request naming popup ─────────────────────────
+
+#[derive(Debug, Clone)]
+pub enum NamingTarget {
+    NewCollection,
+    NewFolder { collection_id: String },
+    NewRequest { collection_id: String, folder_id: Option<String> },
+    Rename { id: String, old_name: String },
+}
+
+impl Default for NamingTarget {
+    fn default() -> Self {
+        Self::NewCollection
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NamingState {
+    pub target: NamingTarget,
+    pub input: String,
+    pub cursor: usize,
+}
+
+// ─── Round 3: Delete confirmation popup ──────────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct ConfirmDeleteState {
+    pub message: String,
+    pub target_id: String,
+}
+
+// ─── AppState ─────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Default)]
 pub struct AppState {
     pub mode: Mode,
     pub focus: Focus,
-    pub request: RequestState,
-    pub response: Option<ResponseState>,
-    pub active_tab: ActiveTab,
-    pub response_tab: ResponseTab,
-    pub request_status: RequestStatus,
     pub sidebar_visible: bool,
     pub should_quit: bool,
     /// Set to `true` whenever visible state changes. The render loop skips
     /// `terminal.draw()` when `false`, avoiding redundant work on idle ticks.
     pub dirty: bool,
 
-    // Round 2: environments
-    pub environments: Vec<Environment>,
-    pub active_env_idx: Option<usize>,
     pub active_popup: ActivePopup,
     pub env_editor: EnvEditorState,
     pub env_switcher: EnvSwitcherState,
+
+    // Round 3
+    pub workspace: WorkspaceState,
+    pub all_workspaces: Vec<String>,
+    pub sidebar: SidebarState,
+    pub naming: NamingState,
+    pub confirm_delete: ConfirmDeleteState,
+    pub ws_switcher: WorkspaceSwitcherState,
+}
+
+impl AppState {
+    /// Returns a reference to the currently active request tab, if any.
+    pub fn active_tab(&self) -> Option<&RequestTab> {
+        self.workspace.open_tabs.get(self.workspace.active_tab_idx)
+    }
+
+    /// Returns a mutable reference to the currently active request tab, if any.
+    pub fn active_tab_mut(&mut self) -> Option<&mut RequestTab> {
+        self.workspace.open_tabs.get_mut(self.workspace.active_tab_idx)
+    }
 }

@@ -131,8 +131,8 @@ pub fn resolver_from_state(state: &AppState) -> EnvResolver {
     let mut secret_keys: HashSet<String> = HashSet::new();
 
     // Layer 0: active environment
-    if let Some(idx) = state.active_env_idx {
-        if let Some(env) = state.environments.get(idx) {
+    if let Some(idx) = state.workspace.active_environment_idx {
+        if let Some(env) = state.workspace.environments.get(idx) {
             let mut map = HashMap::new();
             for var in &env.variables {
                 if var.enabled {

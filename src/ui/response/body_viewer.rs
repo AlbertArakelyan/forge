@@ -16,8 +16,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let focused = matches!(state.focus, Focus::ResponseViewer);
     let border_color = if focused { ACCENT_BLUE } else { BORDER_INACTIVE };
 
-    match &state.request_status {
-        RequestStatus::Loading { spinner_tick } => {
+    let request_status = state.active_tab().map(|t| &t.request_status);
+    let response = state.active_tab().and_then(|t| t.response.as_ref());
+
+    match request_status {
+        Some(RequestStatus::Loading { spinner_tick }) => {
             let idx = (*spinner_tick as usize) % SPINNER_FRAMES.len();
             let text = Line::from(vec![
                 Span::styled(
@@ -31,15 +34,16 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
             ]);
             frame.render_widget(Paragraph::new(text), area);
         }
-        RequestStatus::Error(msg) => {
+        Some(RequestStatus::Error(msg)) => {
+            let msg = msg.clone();
             let text = Line::from(Span::styled(
                 format!("  Error: {}", msg),
                 Style::default().fg(Color::Red),
             ));
             frame.render_widget(Paragraph::new(text), area);
         }
-        RequestStatus::Idle => {
-            match &state.response {
+        Some(RequestStatus::Idle) | None => {
+            match response {
                 None => {
                     let hint = Paragraph::new(Line::from(Span::styled(
                         "  Send a request to see the response",
@@ -85,7 +89,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 pub fn render_meta(frame: &mut Frame, area: Rect, state: &AppState) {
-    let line = match &state.response {
+    let response = state.active_tab().and_then(|t| t.response.as_ref());
+    let line = match response {
         None => Line::from(Span::styled("─", Style::default().fg(BORDER_INACTIVE))),
         Some(resp) => {
             let status_color = match resp.status {
@@ -112,4 +117,3 @@ pub fn render_meta(frame: &mut Frame, area: Rect, state: &AppState) {
     };
     frame.render_widget(Paragraph::new(line), area);
 }
-

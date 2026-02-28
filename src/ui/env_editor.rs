@@ -71,6 +71,7 @@ pub fn render_switcher(frame: &mut Frame, area: Rect, state: &AppState) {
     // Filtered environment list
     let filter = state.env_switcher.search.to_lowercase();
     let envs_filtered: Vec<(usize, &str)> = state
+        .workspace
         .environments
         .iter()
         .enumerate()
@@ -84,7 +85,7 @@ pub fn render_switcher(frame: &mut Frame, area: Rect, state: &AppState) {
         if y >= list_area.y + list_area.height {
             break;
         }
-        let is_active = state.active_env_idx == Some(orig_idx);
+        let is_active = state.workspace.active_environment_idx == Some(orig_idx);
         let is_selected = row == state.env_switcher.selected;
         let marker = if is_active { "● " } else { "○ " };
         let marker_color = if is_active { Color::Rgb(158, 206, 106) } else { TEXT_MUTED };
@@ -134,7 +135,7 @@ pub fn render_editor(frame: &mut Frame, area: Rect, state: &AppState) {
     let popup_area = centered_rect(70, 70, area);
     frame.render_widget(Clear, popup_area);
 
-    let env = state.environments.get(state.env_editor.env_idx);
+    let env = state.workspace.environments.get(state.env_editor.env_idx);
     let env_name = env.map(|e| e.name.as_str()).unwrap_or("(none)");
 
     let title = format!(" Environment: {} ", env_name);

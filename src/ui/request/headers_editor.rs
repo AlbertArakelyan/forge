@@ -52,8 +52,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         .style(Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(hint, hint_area);
 
+    let Some(tab) = state.active_tab() else {
+        return;
+    };
+    let request = &tab.request;
+
     // Placeholder when no headers
-    if state.request.headers.is_empty() {
+    if request.headers.is_empty() {
         let placeholder = Paragraph::new(Line::from(Span::styled(
             "Press a to add a header",
             Style::default()
@@ -72,10 +77,10 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let key_w = rest / 2;
     let val_w = rest - key_w;
 
-    let sel_row = state.request.headers_row;
-    let sel_col = state.request.headers_col;
+    let sel_row = request.headers_row;
+    let sel_col = request.headers_col;
 
-    for (i, pair) in state.request.headers.iter().enumerate() {
+    for (i, pair) in request.headers.iter().enumerate() {
         let row_y = body_area.y + i as u16;
         if row_y >= body_area.y + body_area.height {
             break;
@@ -149,8 +154,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // Cursor in Insert mode
     if focused && state.mode == Mode::Insert {
-        if let Some(pair) = state.request.headers.get(sel_row) {
-            let cursor = state.request.headers_cursor;
+        if let Some(pair) = request.headers.get(sel_row) {
+            let cursor = request.headers_cursor;
             let (cell_x, text) = if sel_col == 0 {
                 (body_area.x + checkbox_w, pair.key.as_str())
             } else {
