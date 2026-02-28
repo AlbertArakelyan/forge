@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::state::app_state::AppState;
+use crate::state::focus::Focus;
 use crate::ui::layout::ACCENT_BLUE;
 
 const TEXT_MUTED: Color = Color::Rgb(86, 95, 137);
@@ -25,6 +26,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let mut spans: Vec<Span<'static>> = Vec::new();
 
+    let tabs_focused = matches!(state.focus, Focus::RequestTabs);
+
     for (i, tab) in state.workspace.open_tabs.iter().enumerate() {
         let is_active = i == state.workspace.active_tab_idx;
         let method = tab.request.method.as_str();
@@ -37,7 +40,12 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
 
         let tab_label = format!(" {} {}{} ", method, name, dirty);
 
-        let style = if is_active {
+        let style = if is_active && tabs_focused {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else if is_active {
             Style::default()
                 .fg(ACCENT_BLUE)
                 .add_modifier(Modifier::BOLD)

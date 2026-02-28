@@ -46,6 +46,10 @@ pub struct CollectionRequest {
     pub id: String,
     pub name: String,
     pub method: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub body_raw: String,
 }
 
 impl CollectionRequest {
@@ -54,6 +58,8 @@ impl CollectionRequest {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
             method: "GET".into(),
+            url: String::new(),
+            body_raw: String::new(),
         }
     }
 }

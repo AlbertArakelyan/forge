@@ -993,11 +993,13 @@ impl App {
                 KeyCode::Char(c @ '1'..='9') => {
                     let idx = (c as usize) - ('1' as usize);
                     if idx < self.state.workspace.open_tabs.len() {
+                        self.sync_active_tab_to_collection();
                         self.state.workspace.active_tab_idx = idx;
                     }
                     return;
                 }
                 KeyCode::Char('w') => {
+                    self.sync_active_tab_to_collection();
                     self.close_active_tab();
                     return;
                 }
@@ -1050,6 +1052,8 @@ impl App {
                     }
                 } else if matches!(self.state.focus, Focus::Sidebar) {
                     self.handle_sidebar_enter();
+                } else if matches!(self.state.focus, Focus::RequestTabs) {
+                    self.state.focus = Focus::UrlBar;
                 }
             }
             KeyCode::Char('[') => {
@@ -1058,6 +1062,7 @@ impl App {
                         tab.request.method = tab.request.method.prev();
                     }
                 } else {
+                    self.sync_active_tab_to_collection();
                     self.prev_open_tab();
                 }
             }
@@ -1067,6 +1072,7 @@ impl App {
                         tab.request.method = tab.request.method.next();
                     }
                 } else {
+                    self.sync_active_tab_to_collection();
                     self.next_open_tab();
                 }
             }
@@ -1251,6 +1257,19 @@ impl App {
                 self.state.sidebar.search_mode = true;
                 self.state.sidebar.search_query.clear();
             }
+            // RequestTabs-specific keys
+            KeyCode::Left if self.state.focus == Focus::RequestTabs => {
+                self.sync_active_tab_to_collection();
+                self.prev_open_tab();
+            }
+            KeyCode::Right if self.state.focus == Focus::RequestTabs => {
+                self.sync_active_tab_to_collection();
+                self.next_open_tab();
+            }
+            KeyCode::Char('x') if self.state.focus == Focus::RequestTabs => {
+                self.sync_active_tab_to_collection();
+                self.close_active_tab();
+            }
             KeyCode::Char('1') => self.state.focus = Focus::Sidebar,
             KeyCode::Char('2') => self.state.focus = Focus::UrlBar,
             KeyCode::Char('3') => self.state.focus = Focus::Editor,
@@ -1322,14 +1341,27 @@ impl App {
                     }
                 }
                 crate::ui::sidebar::NodeKind::Request { method } => {
-                    // Open this request in a new tab
+                    // Dedup: if already open, just focus it
+                    if let Some(idx) = self.state.workspace.open_tabs.iter()
+                        .position(|t| t.collection_id.as_deref() == Some(&node.id))
+                    {
+                        self.state.workspace.active_tab_idx = idx;
+                        return;
+                    }
+                    // Load persisted state from collection
+                    let saved = find_col_request_by_id(&self.state.workspace.collections, &node.id).cloned();
                     let mut tab = RequestTab::default();
                     tab.request.name = node.label.clone();
                     tab.request.method = crate::state::request_state::HttpMethod::from_str_or_get(&method);
                     tab.collection_id = Some(node.id.clone());
+                    if let Some(saved) = saved {
+                        tab.request.url = saved.url.clone();
+                        if !saved.body_raw.is_empty() {
+                            tab.request.body = crate::state::request_state::RequestBody::Json(saved.body_raw.clone());
+                        }
+                    }
                     self.state.workspace.open_tabs.push(tab);
-                    self.state.workspace.active_tab_idx =
-                        self.state.workspace.open_tabs.len() - 1;
+                    self.state.workspace.active_tab_idx = self.state.workspace.open_tabs.len() - 1;
                 }
             }
         }
@@ -1412,6 +1444,8 @@ impl App {
                     id: uuid::Uuid::new_v4().to_string(),
                     name: format!("{} (copy)", node.label),
                     method: method.clone(),
+                    url: String::new(),
+                    body_raw: String::new(),
                 };
                 let ws_name = self.state.workspace.name.clone();
                 // Insert after cursor in the containing collection/folder
@@ -1473,6 +1507,29 @@ impl App {
                 self.state.workspace.active_tab_idx.min(
                     self.state.workspace.open_tabs.len() - 1,
                 );
+        }
+    }
+
+    // ─── Collection sync ──────────────────────────────────────────────────────
+
+    fn sync_active_tab_to_collection(&mut self) {
+        let idx = self.state.workspace.active_tab_idx;
+        if let Some(tab) = self.state.workspace.open_tabs.get(idx) {
+            let Some(req_id) = tab.collection_id.clone() else { return };
+            let url = tab.request.url.clone();
+            let method = tab.request.method.as_str().to_string();
+            let body_raw = match &tab.request.body {
+                crate::state::request_state::RequestBody::Json(s)
+                | crate::state::request_state::RequestBody::Text(s) => s.clone(),
+                _ => String::new(),
+            };
+            let ws_name = self.state.workspace.name.clone();
+            for col in &mut self.state.workspace.collections {
+                if update_col_request_state(&mut col.items, &req_id, &url, &method, &body_raw) {
+                    let _ = col_storage::save_collection_meta(&ws_name, col);
+                    break;
+                }
+            }
         }
     }
 
@@ -1972,6 +2029,7 @@ impl App {
                     tab.response = Some(response);
                     tab.request_status = RequestStatus::Idle;
                 }
+                self.sync_active_tab_to_collection();
             }
             Err(AppError::Cancelled) => {
                 if let Some(tab) = self.state.active_tab_mut() {
@@ -2190,6 +2248,62 @@ fn insert_after_in_list(
             if insert_after_in_list(&mut f.items, after_id, new_item.clone()) {
                 return true;
             }
+        }
+    }
+    false
+}
+
+fn find_col_request_by_id<'a>(
+    collections: &'a [Collection],
+    id: &str,
+) -> Option<&'a CollectionRequest> {
+    for col in collections {
+        if let Some(r) = find_request_in_items(&col.items, id) {
+            return Some(r);
+        }
+    }
+    None
+}
+
+fn find_request_in_items<'a>(
+    items: &'a [CollectionItem],
+    id: &str,
+) -> Option<&'a CollectionRequest> {
+    for item in items {
+        match item {
+            CollectionItem::Request(r) if r.id == id => return Some(r),
+            CollectionItem::Folder(f) => {
+                if let Some(r) = find_request_in_items(&f.items, id) {
+                    return Some(r);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn update_col_request_state(
+    items: &mut Vec<CollectionItem>,
+    id: &str,
+    url: &str,
+    method: &str,
+    body_raw: &str,
+) -> bool {
+    for item in items.iter_mut() {
+        match item {
+            CollectionItem::Request(r) if r.id == id => {
+                r.url = url.to_string();
+                r.method = method.to_string();
+                r.body_raw = body_raw.to_string();
+                return true;
+            }
+            CollectionItem::Folder(f) => {
+                if update_col_request_state(&mut f.items, id, url, method, body_raw) {
+                    return true;
+                }
+            }
+            _ => {}
         }
     }
     false
